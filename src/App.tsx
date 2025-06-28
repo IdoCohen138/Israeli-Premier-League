@@ -1,35 +1,105 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import LoginPage from './pages/LoginPage';
+import HomePage from './pages/HomePage';
+import PreSeasonBetsPage from './pages/PreSeasonBetsPage';
+import RoundBetsPage from './pages/RoundBetsPage';
+import LeaderboardPage from './pages/LeaderboardPage';
+import AdminPage from './pages/AdminPage';
+import './App.css';
 
-function App() {
-  const [count, setCount] = useState(0)
+// Component to protect routes that require authentication
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
 
-  return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+  if (loading) {
+    return (
+      <div dir="rtl" className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">טוען...</p>
+        </div>
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
 }
 
-export default App
+function AppRoutesContent() {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  
+  
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route 
+        path="/" 
+        element={
+          <ProtectedRoute>
+            <HomePage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/pre-season-bets" 
+        element={
+          <ProtectedRoute>
+            <PreSeasonBetsPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/round-bets" 
+        element={
+          <ProtectedRoute>
+            <RoundBetsPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/leaderboard" 
+        element={
+          <ProtectedRoute>
+            <LeaderboardPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin" 
+        element={
+          <ProtectedRoute>
+            <AdminPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+function AppRoutes() {
+  
+  return (
+    <Router>
+      <AppRoutesContent />
+    </Router>
+  );
+}
+
+function App() {
+  
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  );
+}
+
+export default App;

@@ -1,3 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mobile-first responsive design */
+html {
+  font-size: 16px;
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+/* Ensure proper RTL support */
+[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Mobile-specific styles */
+@media (max-width: 640px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  /* Ensure cards don't overflow on mobile */
+  .card {
+    margin: 0.5rem;
+    border-radius: 0.75rem;
+  }
+  
+  /* Better button sizing on mobile */
+  button {
+    min-height: 44px; /* iOS recommended touch target size */
+  }
+  
+  /* Better input sizing on mobile */
+  input {
+    min-height: 44px;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+}
+
+/* Prevent horizontal scroll on mobile */
+body {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* Better touch targets for mobile */
+@media (max-width: 768px) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
