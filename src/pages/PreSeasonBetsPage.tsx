@@ -13,6 +13,7 @@ import {
     getPlayerPreSeasonBets, 
     hasPlayerPreSeasonBets 
 } from "@/lib/playerBets";
+import TeamLogo from "@/components/TeamLogo";
 
 export default function PreSeasonBetsPage() {
     const { user } = useAuth();
@@ -380,9 +381,12 @@ export default function PreSeasonBetsPage() {
                                                             className="text-xs justify-start h-auto py-2 px-3"
                                                             disabled={!isBettingAllowed}
                                                         >
-                                                            <div className="text-right w-full">
-                                                                <div className="font-medium">{player.name}</div>
-                                                                <div className="text-xs text-gray-500">{player.team}</div>
+                                                            <div className="flex items-center gap-2 w-full">
+                                                                <TeamLogo teamId={player.teamId} size="sm" />
+                                                                <div className="text-right flex-1">
+                                                                    <div className="font-medium">{player.name}</div>
+                                                                    <div className="text-xs text-gray-500">{player.team}</div>
+                                                                </div>
                                                             </div>
                                                         </Button>
                                                     );
@@ -404,8 +408,11 @@ export default function PreSeasonBetsPage() {
                                                             className="text-xs justify-start h-auto py-2 px-3"
                                                             disabled={!isBettingAllowed}
                                                         >
-                                                            <div className="text-right w-full">
-                                                                <div className="font-medium">{team.name}</div>
+                                                            <div className="flex items-center gap-2 w-full">
+                                                                <TeamLogo teamId={team.uid} size="sm" />
+                                                                <div className="text-right flex-1">
+                                                                    <div className="font-medium">{team.name}</div>
+                                                                </div>
                                                             </div>
                                                         </Button>
                                                     );

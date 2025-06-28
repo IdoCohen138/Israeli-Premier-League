@@ -13,6 +13,7 @@ import {
     getPlayerRoundBets, 
     hasPlayerBetOnRound 
 } from "@/lib/playerBets";
+import TeamLogo from "@/components/TeamLogo";
 
 export default function RoundBetsPage() {
     const { user } = useAuth();
@@ -28,6 +29,7 @@ export default function RoundBetsPage() {
     const [currentSeason, setCurrentSeason] = useState<string>('');
     const [isBettingAllowed, setIsBettingAllowed] = useState(true);
     const [timeRemaining, setTimeRemaining] = useState<string>('');
+    const [betSaved, setBetSaved] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         setCurrentSeason(getCurrentSeason());
@@ -88,9 +90,8 @@ export default function RoundBetsPage() {
     
                 const round: Round = {
                     number: parseInt(roundId),
-                    matches,
-                    closingTime: roundData.closingTime || '',
-                    endTime: roundData.endTime || '',
+                    matches: matches.map(m => m.uid),
+                    matchesDetails: matches,
                     startTime: roundData.startTime || '',
                     isActive: roundData.isActive || false,
                 };
@@ -140,9 +141,8 @@ export default function RoundBetsPage() {
                 
                 const roundData: Round = {
                     number: roundNumber,
-                    matches: matches,
-                    closingTime: data.closingTime || '',
-                    endTime: data.endTime || '',
+                    matches: matches.map(m => m.uid),
+                    matchesDetails: matches,
                     startTime: data.startTime || '',
                     isActive: data.isActive || false
                 };
@@ -201,6 +201,8 @@ export default function RoundBetsPage() {
             // עדכון המצב המקומי
             setBets(updatedBets);
             setHasExistingBets(true);
+            setBetSaved(prev => ({ ...prev, [matchId]: true }));
+            setTimeout(() => setBetSaved(prev => ({ ...prev, [matchId]: false })), 2000);
         } catch (error) {
             console.error('Error saving bet:', error);
             setError('שגיאה בשמירת ההימור. אנא נסה שוב.');
@@ -320,11 +322,16 @@ export default function RoundBetsPage() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 justify-center">
                             {rounds.map((round) => (
                                 <Button
                                     key={round.number}
                                     variant={selectedRound === round.number ? "default" : "outline"}
+                                    className={`transition-all duration-200 ${
+                                        selectedRound === round.number 
+                                            ? 'bg-orange-500 hover:bg-orange-600 border-orange-500' 
+                                            : 'hover:bg-orange-50 hover:border-orange-300'
+                                    }`}
                                     onClick={() => setSelectedRound(round.number)}
                                 >
                                     מחזור {round.number}
@@ -385,21 +392,26 @@ export default function RoundBetsPage() {
                 {currentRound && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold text-gray-900">משחקי המחזור</h2>
-                        {currentRound.matches.map((match) => (
+                        {currentRound.matchesDetails?.map((match) => (
                             <Card key={match.uid} className="bg-white rounded-xl shadow-sm">
                                 <CardContent className="p-6">
                                     <div className="space-y-4">
                                         {/* Match Info */}
-                                        <div className="flex items-center justify-between">
+                                        <div className="flex items-center justify-between gap-1 md:gap-3">
                                             <div className="text-center flex-1">
-                                                <h3 className="font-semibold text-lg">{getTeamName(match.homeTeamId)}</h3>
+                                                <div className="flex items-center justify-center gap-2 mb-2">
+                                                    <TeamLogo teamId={match.homeTeamId} size="md" />
+                                                    <h3 className="font-semibold text-lg">{getTeamName(match.homeTeamId)}</h3>
+                                                </div>
                                             </div>
-                                            <div className="text-center mx-4">
+                                            <div className="text-center mx-1 md:mx-2">
                                                 <div className="text-sm text-gray-600">נגד</div>
-
                                             </div>
                                             <div className="text-center flex-1">
-                                                <h3 className="font-semibold text-lg">{getTeamName(match.awayTeamId)}</h3>
+                                                <div className="flex items-center justify-center gap-2 mb-2">
+                                                    <h3 className="font-semibold text-lg">{getTeamName(match.awayTeamId)}</h3>
+                                                    <TeamLogo teamId={match.awayTeamId} size="md" />
+                                                </div>
                                             </div>
                                         </div>
 
@@ -415,9 +427,6 @@ export default function RoundBetsPage() {
                                         {/* Bet Input */}
                                         <div className="flex items-center justify-center gap-4">
                                             <div className="text-center">
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    {getTeamName(match.homeTeamId)}
-                                                </label>
                                                 <input
                                                     type="number"
                                                     min="0"
@@ -431,9 +440,6 @@ export default function RoundBetsPage() {
                                             </div>
                                             <span className="text-lg font-semibold">-</span>
                                             <div className="text-center">
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    {getTeamName(match.awayTeamId)}
-                                                </label>
                                                 <input
                                                     type="number"
                                                     min="0"
@@ -445,6 +451,9 @@ export default function RoundBetsPage() {
                                                     disabled={!isBettingAllowed}
                                                 />
                                             </div>
+                                        </div>
+                                        
+                                        <div className="flex justify-center mt-4">
                                             <Button
                                                 onClick={() => {
                                                     const homeInput = document.querySelector(`input[data-match="${match.uid}-home"]`) as HTMLInputElement;
@@ -453,10 +462,12 @@ export default function RoundBetsPage() {
                                                     const awayScore = parseInt(awayInput?.value || '0');
                                                     handleBet(match.uid, homeScore, awayScore);
                                                 }}
-                                                className="mr-4"
+                                                className={`transition-all duration-200 px-6 py-2 rounded-lg font-bold text-white
+                                                    ${betSaved[match.uid] ? 'bg-green-400 hover:bg-green-500' : 'bg-orange-400 hover:bg-orange-500'}
+                                                    shadow-md focus:outline-none focus:ring-2 focus:ring-orange-300`}
                                                 disabled={!isBettingAllowed}
                                             >
-                                                שמור הימור
+                                                {betSaved[match.uid] ? 'הימור נשמר!' : 'שמור הימור'}
                                             </Button>
                                         </div>
                                     </div>

@@ -30,9 +30,9 @@ export default function LeaderboardPage() {
 
             // מציאת המיקום של המשתמש הנוכחי
             if (user) {
-                const userEntry = leaderboardData.find(entry => entry.userId === user.uid);
+                const userEntry = leaderboardData.find(entry => entry.uid === user.uid);
                 if (userEntry) {
-                    const rank = leaderboardData.findIndex(entry => entry.userId === user.uid) + 1;
+                    const rank = leaderboardData.findIndex(entry => entry.uid === user.uid) + 1;
                     setUserRank(rank);
                 }
             }
@@ -147,7 +147,7 @@ export default function LeaderboardPage() {
                                 </div>
                                 <div className="text-right">
                                     <p className="text-lg font-bold text-blue-900">
-                                        {leaderboard.find(entry => entry.userId === user?.uid)?.totalPoints || 0} נקודות
+                                        {leaderboard.find(entry => entry.uid === user?.uid)?.totalPoints || 0} נקודות
                                     </p>
                                 </div>
                             </div>
@@ -214,6 +214,7 @@ export default function LeaderboardPage() {
                                         <th className="text-right py-3 px-4 font-semibold">סה"כ נקודות</th>
                                         <th className="text-right py-3 px-4 font-semibold">הימורים מקדימים</th>
                                         <th className="text-right py-3 px-4 font-semibold">הימורי מחזורים</th>
+                                        <th className="text-right py-3 px-4 font-semibold">נקודות לפי מחזור</th>
                                         <th className="text-right py-3 px-4 font-semibold">תחזיות נכונות</th>
                                         <th className="text-right py-3 px-4 font-semibold">תחזיות מדויקות</th>
                                     </tr>
@@ -238,10 +239,31 @@ export default function LeaderboardPage() {
                                                 <span className="font-bold text-lg">{entry.totalPoints || 0}</span>
                                             </td>
                                             <td className="py-3 px-4">
-                                                <span className="text-green-600 font-medium">{entry.preSeasonPoints || 0}</span>
+                                                <span className="text-green-600 font-medium">
+                                                    {entry.preSeasonPoints || 0}
+                                                </span>
+                                                {entry.preSeasonPoints > 0 && (
+                                                    <div className="text-xs text-green-500 mt-1">✓ הימורים מקדימים</div>
+                                                )}
                                             </td>
                                             <td className="py-3 px-4">
-                                                <span className="text-blue-600 font-medium">{entry.roundPoints || 0}</span>
+                                                <span className="text-blue-600 font-medium">
+                                                    {Object.values(entry.roundPoints || {}).reduce((sum, points) => sum + points, 0)}
+                                                </span>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <div className="text-xs text-gray-600">
+                                                    {Object.entries(entry.roundPoints || {}).length > 0 ? (
+                                                        Object.entries(entry.roundPoints || {}).map(([round, points]) => (
+                                                            <div key={round} className="flex justify-between items-center">
+                                                                <span>מחזור {round}:</span>
+                                                                <span className="font-medium text-blue-600">{points} נק'</span>
+                                                            </div>
+                                                        ))
+                                                    ) : (
+                                                        <span className="text-gray-400">אין עדיין</span>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="py-3 px-4">
                                                 <span className="text-gray-600">{entry.correctPredictions || 0}</span>

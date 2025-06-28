@@ -10,6 +10,7 @@ import { collection, doc, getDocs, setDoc, deleteDoc, addDoc, updateDoc } from "
 import { db } from "@/lib/firebase";
 import { getCurrentSeason } from "@/lib/season";
 import { calculateRoundPoints, calculatePreSeasonPoints } from "@/lib/playerBets";
+import TeamLogo from "@/components/TeamLogo";
 
 export default function AdminPage() {
     const { user } = useAuth();
@@ -299,18 +300,21 @@ export default function AdminPage() {
                     }
                 }
                 
-                // עדכון המחזור
-                const roundRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString());
-                await updateDoc(roundRef, { resultsEntered: true });
-                
                 // חישוב נקודות
+                console.log('About to calculate round points...');
                 await calculateRoundPoints(roundNumber);
+                console.log('Round points calculated successfully');
                 
                 setEditingResults(null);
-                await loadData(); // רענון הנתונים
+                
+                // רענון הנתונים כדי להציג את הנקודות המעודכנות
+                await loadData();
+                
+                alert('התוצאות נשמרו והנקודות חושבו בהצלחה!');
             }
         } catch (error) {
             console.error('Error saving results:', error);
+            alert('שגיאה בשמירת התוצאות. אנא נסה שוב.');
         }
     };
 
@@ -325,13 +329,17 @@ export default function AdminPage() {
             // חישוב נקודות להימורים מקדימים
             await calculatePreSeasonPoints();
             
+            // רענון הנתונים כדי להציג את הנקודות המעודכנות
+            await loadData();
+            
             // ניקוי שדות החיפוש
             setPlayerSearchTerm('');
             setAssistSearchTerm('');
             
-            alert('תאריך סיום העונה והתוצאות נשמרו בהצלחה!');
+            alert('תאריך סיום העונה והתוצאות נשמרו בהצלחה! הנקודות חושבו ועודכנו.');
         } catch (error) {
             console.error('Error saving season end:', error);
+            alert('שגיאה בשמירת תוצאות סוף עונה. אנא נסה שוב.');
         }
     };
 
@@ -556,28 +564,18 @@ export default function AdminPage() {
                                         <CardTitle className="flex items-center justify-between">
                                             <span>מחזור {round.number}</span>
                                             <div className="flex items-center gap-2">
-                                                {!round.resultsEntered && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleEditResults(round.number)}
-                                                        className="text-blue-600"
-                                                    >
-                                                        הזן תוצאות
-                                                    </Button>
-                                                )}
-                                                {round.resultsEntered && (
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-green-600 text-sm">✓ תוצאות הוזנו</span>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => handleEditResults(round.number)}
-                                                            className="text-blue-600"
-                                                        >
-                                                            ערוך תוצאות
-                                                        </Button>
-                                                    </div>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleEditResults(round.number)}
+                                                    className="text-blue-600"
+                                                >
+                                                    הזן תוצאות
+                                                </Button>
+                                                {(round.matchesDetails || []).some(match => match.pointsCalculated) && (
+                                                    <span className="text-green-600 text-sm">
+                                                        ✓ {round.matchesDetails?.filter(match => match.pointsCalculated).length || 0} משחקים חושבו
+                                                    </span>
                                                 )}
                                             </div>
                                         </CardTitle>
@@ -592,9 +590,12 @@ export default function AdminPage() {
                                                     <div className="flex-1">
                                                         <div className="flex items-center gap-4">
                                                             <div className="text-center flex-1">
-                                                                <p className="font-medium">
-                                                                    {teams.find(t => t.uid === match.homeTeamId)?.name || match.homeTeam || 'קבוצה לא נבחרה'}
-                                                                </p>
+                                                                <div className="flex items-center justify-center gap-2">
+                                                                    <TeamLogo teamId={match.homeTeamId} size="sm" />
+                                                                    <p className="font-medium">
+                                                                        {teams.find(t => t.uid === match.homeTeamId)?.name || match.homeTeam || 'קבוצה לא נבחרה'}
+                                                                    </p>
+                                                                </div>
                                                             </div>
                                                             <div className="text-center mx-4">
                                                                 <div className="text-sm text-gray-600">נגד</div>
@@ -603,9 +604,12 @@ export default function AdminPage() {
                                                                 </div>
                                                             </div>
                                                             <div className="text-center flex-1">
-                                                                <p className="font-medium">
-                                                                    {teams.find(t => t.uid === match.awayTeamId)?.name || match.awayTeam || 'קבוצה לא נבחרה'}
-                                                                </p>
+                                                                <div className="flex items-center justify-center gap-2">
+                                                                    <p className="font-medium">
+                                                                        {teams.find(t => t.uid === match.awayTeamId)?.name || match.awayTeam || 'קבוצה לא נבחרה'}
+                                                                    </p>
+                                                                    <TeamLogo teamId={match.awayTeamId} size="sm" />
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -657,9 +661,14 @@ export default function AdminPage() {
                                                         ) : (
                                                             <div className="text-center">
                                                                 {match.actualHomeScore !== undefined && match.actualAwayScore !== undefined ? (
-                                                                    <p className="font-semibold">
-                                                                        {match.actualHomeScore} - {match.actualAwayScore}
-                                                                    </p>
+                                                                    <div>
+                                                                        <p className="font-semibold">
+                                                                            {match.actualHomeScore} - {match.actualAwayScore}
+                                                                        </p>
+                                                                        {match.pointsCalculated && (
+                                                                            <p className="text-xs text-green-600">✓ חושבו נקודות</p>
+                                                                        )}
+                                                                    </div>
                                                                 ) : (
                                                                     <p className="text-gray-500">לא הוזן</p>
                                                                 )}
@@ -799,13 +808,14 @@ export default function AdminPage() {
                                                         .map(player => (
                                                             <div
                                                                 key={player.uid}
-                                                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                                                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2"
                                                                 onClick={() => {
                                                                     setSeasonResults(prev => ({ ...prev, topScorer: player.uid }));
                                                                     setPlayerSearchTerm(player.name);
                                                                 }}
                                                             >
-                                                                {player.name} - {teams.find(t => t.uid === player.teamId)?.name || player.team}
+                                                                <TeamLogo teamId={player.teamId} size="sm" />
+                                                                <span>{player.name} - {teams.find(t => t.uid === player.teamId)?.name || player.team}</span>
                                                             </div>
                                                         ))
                                                     }
@@ -840,13 +850,14 @@ export default function AdminPage() {
                                                         .map(player => (
                                                             <div
                                                                 key={player.uid}
-                                                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                                                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2"
                                                                 onClick={() => {
                                                                     setSeasonResults(prev => ({ ...prev, topAssists: player.uid }));
                                                                     setAssistSearchTerm(player.name);
                                                                 }}
                                                             >
-                                                                {player.name} - {teams.find(t => t.uid === player.teamId)?.name || player.team}
+                                                                <TeamLogo teamId={player.teamId} size="sm" />
+                                                                <span>{player.name} - {teams.find(t => t.uid === player.teamId)?.name || player.team}</span>
                                                             </div>
                                                         ))
                                                     }

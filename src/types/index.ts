@@ -33,6 +33,7 @@ export interface Match {
   awayScore?: number;
   actualHomeScore?: number;
   actualAwayScore?: number;
+  pointsCalculated?: boolean;
 }
 
 export interface Round {
@@ -41,7 +42,6 @@ export interface Round {
   matchesDetails?: Match[]; // פרטי המשחקים המלאים
   startTime: string;
   isActive: boolean;
-  resultsEntered?: boolean;
 }
 
 export interface Season {
@@ -54,7 +54,6 @@ export interface Season {
 }
 
 export interface Bet {
-  uid: string;
   userId: string;
   matchId: string;
   round: number;
@@ -69,7 +68,7 @@ export interface Bet {
 export interface UserStats {
   uid: string;
   totalPoints: number;
-  roundPoints: number;
+  roundPoints: Record<number, number>; // map של מחזור -> נקודות
   previousRoundPoints: number;
   pointsChange: number;
   bets: Bet[];
@@ -86,8 +85,7 @@ export interface PreSeasonBet {
 
 // מבנה חדש לשמירת הימורים של שחקנים בעונה
 export interface PlayerBets {
-  uid: string;
-  userId: string;
+  uid?: string; // document ID - נוסף בפונקציות
   displayName?: string; // שם התצוגה של השחקן
   seasonId: string;
   seasonName: string; // "2025-2026"
@@ -105,9 +103,9 @@ export interface PlayerBets {
   };
   
   // סטטיסטיקות כלליות
-  totalPoints: number;
-  preSeasonPoints: number;
-  roundPoints: number;
+  totalPoints: number; // סה"כ נקודות עד למחזור הנוכחי
+  preSeasonPoints: number; // נקודות מהימורים מקדימים
+  roundPoints: Record<number, number>; // map של מחזור -> נקודות (למשל: {1: 5, 2: 3})
   correctPredictions: number;
   exactPredictions: number;
 }
@@ -118,7 +116,7 @@ export interface LeaderboardEntry {
   email: string;
   totalPoints: number;
   preSeasonPoints: number;
-  roundPoints: number;
+  roundPoints: Record<number, number>; // map של מחזור -> נקודות
   correctPredictions: number;
   exactPredictions: number;
 } 
