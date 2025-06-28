@@ -31,18 +31,23 @@ export interface Match {
   isCancelled?: boolean;
   homeScore?: number;
   awayScore?: number;
+  actualHomeScore?: number;
+  actualAwayScore?: number;
 }
 
 export interface Round {
   number: number;
-  matches: Match[];
-  closingTime: string;
-  endTime: string;
+  matches: string[]; // מערך של UIDs
+  matchesDetails?: Match[]; // פרטי המשחקים המלאים
+  startTime: string;
   isActive: boolean;
+  resultsEntered?: boolean;
 }
 
 export interface Season {
   uid: string;
+  seasonStart: string; // ISO date string when pre-season betting closes
+  seasonEnd: string;
   players: Record<string, Player>;
   rounds: Record<number, Round>;
   teams: Record<string, Team>;
@@ -77,6 +82,34 @@ export interface PreSeasonBet {
   teamId?: string;
   playerId?: string;
   points?: number;
+}
+
+// מבנה חדש לשמירת הימורים של שחקנים בעונה
+export interface PlayerBets {
+  uid: string;
+  userId: string;
+  displayName?: string; // שם התצוגה של השחקן
+  seasonId: string;
+  seasonName: string; // "2025-2026"
+  createdAt: Date;
+  updatedAt: Date;
+  
+  // הימורים מקדימים
+  preSeasonBets: {
+    champion?: string; // teamId
+    cup?: string; // teamId
+    relegation1?: string; // teamId
+    relegation2?: string; // teamId
+    topScorer?: string; // playerId
+    topAssists?: string; // playerId
+  };
+  
+  // סטטיסטיקות כלליות
+  totalPoints: number;
+  preSeasonPoints: number;
+  roundPoints: number;
+  correctPredictions: number;
+  exactPredictions: number;
 }
 
 export interface LeaderboardEntry {

@@ -5,9 +5,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Calendar, Clock, Target } from "lucide-react";
 import { Match, Round, Bet, Team } from "@/types";
-import { collection, doc, getDocs, setDoc, query, where, getDoc } from "firebase/firestore";
+import { collection, doc, getDocs, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getSeasonPath, getCurrentSeason } from "@/lib/season";
+import { 
+    saveRoundBets, 
+    getPlayerRoundBets, 
+    hasPlayerBetOnRound 
+} from "@/lib/playerBets";
 
 export default function RoundBetsPage() {
     const { user } = useAuth();
@@ -19,8 +24,13 @@ export default function RoundBetsPage() {
     const [bets, setBets] = useState<Bet[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [hasExistingBets, setHasExistingBets] = useState(false);
+    const [currentSeason, setCurrentSeason] = useState<string>('');
+    const [isBettingAllowed, setIsBettingAllowed] = useState(true);
+    const [timeRemaining, setTimeRemaining] = useState<string>('');
 
     useEffect(() => {
+        setCurrentSeason(getCurrentSeason());
         loadData();
     }, []);
 
@@ -28,73 +38,77 @@ export default function RoundBetsPage() {
         if (selectedRound) {
             loadRoundData(selectedRound);
         }
-    }, [selectedRound]);
+    }, [selectedRound, user]);
+
+    // Timer effect to update countdown
+    useEffect(() => {
+        if (!currentRound?.startTime || !isBettingAllowed) return;
+
+        const updateTimer = () => {
+            checkBettingStatus(currentRound);
+        };
+
+        // Update immediately
+        updateTimer();
+        
+        // Update every minute
+        const interval = setInterval(updateTimer, 60000);
+        
+        return () => clearInterval(interval);
+    }, [currentRound, isBettingAllowed]);
 
     const loadData = async () => {
         try {
             const seasonPath = getSeasonPath();
-            console.log('=== DEBUG: RoundBetsPage ===');
-            console.log('Season path:', seasonPath);
-            console.log('Current date:', new Date().toISOString());
-
-            // טעינת מחזורים - יש collection בשם rounds ברמה העליונה
-            console.log('Loading rounds from: rounds collection');
-            const roundsSnapshot = await getDocs(collection(db, 'rounds'));
-            console.log('Rounds snapshot size:', roundsSnapshot.size);
-            console.log('Rounds snapshot empty:', roundsSnapshot.empty);
+            const fullPath = `${seasonPath}/rounds`;
+            console.log(">>> טוען מחזורים מתוך הנתיב:", fullPath);
             
+            const roundsSnapshot = await getDocs(collection(db, seasonPath, 'rounds'));
+            console.log(">>> כמות מסמכים ב-rounds:", roundsSnapshot.size);
+            
+    
             if (roundsSnapshot.empty) {
-                console.log('No rounds found in database!');
                 setError('לא נמצאו מחזורים במסד הנתונים');
                 return;
             }
-            
-            const roundsData = roundsSnapshot.docs.map(doc => {
-                const data = doc.data();
-                console.log('Round document data:', data);
-                
-                // המבנה: כל מסמך הוא מחזור עם שדה matches
+    
+            const roundsData: Round[] = [];
+    
+            for (const roundDoc of roundsSnapshot.docs) {
+                const roundId = roundDoc.id;
+                const roundData = roundDoc.data();
+    
+                // טוען את כל המשחקים מתוך הקולקשן matches של המחזור הזה
+                const matchesSnapshot = await getDocs(collection(db, seasonPath, 'rounds', roundId, 'matches'));
+    
+                const matches = matchesSnapshot.docs.map((doc) => ({
+                    uid: doc.id,
+                    ...doc.data(),
+                })) as Match[];
+    
                 const round: Round = {
-                    number: parseInt(doc.id), // מספר המחזור הוא ה-ID של המסמך
-                    matches: data.matches || [], // מערך המשחקים
-                    closingTime: data.closingTime || '',
-                    endTime: data.endTime || '',
-                    isActive: data.isActive || false
+                    number: parseInt(roundId),
+                    matches,
+                    closingTime: roundData.closingTime || '',
+                    endTime: roundData.endTime || '',
+                    startTime: roundData.startTime || '',
+                    isActive: roundData.isActive || false,
                 };
-                
-                console.log('Processed round:', round);
-                return round;
-            });
-            
+    
+                roundsData.push(round);
+            }
+    
             setRounds(roundsData.sort((a, b) => a.number - b.number));
-            console.log('Final rounds array:', roundsData);
-
-            // טעינת קבוצות
-            console.log('Loading teams from:', `${seasonPath}/teams`);
+    
             const teamsSnapshot = await getDocs(collection(db, seasonPath, 'teams'));
-            console.log('Teams snapshot size:', teamsSnapshot.size);
-            console.log('Teams snapshot empty:', teamsSnapshot.empty);
-            
-            const teamsData = teamsSnapshot.docs.map(doc => {
-                const data = { uid: doc.id, ...doc.data() } as Team;
-                console.log('Team data:', data);
-                return data;
-            });
+            const teamsData = teamsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() })) as Team[];
             setTeams(teamsData);
-            console.log('Final teams array:', teamsData);
-
+    
             if (roundsData.length > 0) {
                 setSelectedRound(roundsData[0].number);
-            } else {
-                console.log('No rounds available to select');
             }
         } catch (error) {
             console.error('Error loading data:', error);
-            console.error('Error details:', {
-                message: error instanceof Error ? error.message : 'Unknown error',
-                code: error instanceof Error && 'code' in error ? (error as any).code : 'No code',
-                stack: error instanceof Error ? error.stack : 'No stack'
-            });
             setError('שגיאה בטעינת הנתונים. אנא נסה שוב.');
         } finally {
             setLoading(false);
@@ -102,41 +116,53 @@ export default function RoundBetsPage() {
     };
 
     const loadRoundData = async (roundNumber: number) => {
+        if (!user) return;
+        
         try {
+            const seasonPath = getSeasonPath();
             console.log('=== DEBUG: loadRoundData ===');
             console.log('Loading round data for round:', roundNumber);
-            console.log('From path: rounds/', roundNumber);
+            console.log('From path:', `${seasonPath}/rounds/${roundNumber}`);
             
-            const roundDoc = await getDoc(doc(db, 'rounds', roundNumber.toString()));
+            const roundDoc = await getDoc(doc(db, seasonPath, 'rounds', roundNumber.toString()));
             console.log('Round document exists:', roundDoc.exists());
             
             if (roundDoc.exists()) {
                 const data = roundDoc.data();
                 console.log('Round document data:', data);
                 
+                // טעינת משחקים מקולקשן matches של המחזור
+                const matchesSnapshot = await getDocs(collection(db, seasonPath, 'rounds', roundNumber.toString(), 'matches'));
+                const matches = matchesSnapshot.docs.map((doc) => ({
+                    uid: doc.id,
+                    ...doc.data(),
+                })) as Match[];
+                
                 const roundData: Round = {
                     number: roundNumber,
-                    matches: data.matches || [],
+                    matches: matches,
                     closingTime: data.closingTime || '',
                     endTime: data.endTime || '',
+                    startTime: data.startTime || '',
                     isActive: data.isActive || false
                 };
                 
                 console.log('Processed round data:', roundData);
                 setCurrentRound(roundData);
+                
+                // בדיקת סטטוס ההימורים
+                checkBettingStatus(roundData);
 
                 // טעינת הימורים קיימים
-                if (user) {
-                    console.log('Loading bets for user:', user.uid, 'round:', roundNumber);
-                    const betsQuery = query(
-                        collection(db, 'bets'),
-                        where('userId', '==', user.uid),
-                        where('round', '==', roundNumber)
-                    );
-                    const betsSnapshot = await getDocs(betsQuery);
-                    const betsData = betsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as Bet));
-                    setBets(betsData);
-                    console.log('Loaded bets for round:', betsData);
+                console.log('Loading bets for user:', user.uid, 'round:', roundNumber);
+                const existingBets = await getPlayerRoundBets(user.uid, roundNumber);
+                if (existingBets) {
+                    setBets(existingBets);
+                    setHasExistingBets(true);
+                    console.log('Loaded bets for round:', existingBets);
+                } else {
+                    setBets([]);
+                    setHasExistingBets(false);
                 }
             } else {
                 console.log('Round document does not exist!');
@@ -144,22 +170,21 @@ export default function RoundBetsPage() {
             }
         } catch (error) {
             console.error('Error loading round data:', error);
-            console.error('Error details:', {
-                message: error instanceof Error ? error.message : 'Unknown error',
-                code: error instanceof Error && 'code' in error ? (error as any).code : 'No code',
-                stack: error instanceof Error ? error.stack : 'No stack'
-            });
             setError('שגיאה בטעינת נתוני המחזור. אנא נסה שוב.');
         }
     };
 
     const handleBet = async (matchId: string, homeScore: number, awayScore: number) => {
         if (!user || !selectedRound) return;
+        
+        if (!isBettingAllowed) {
+            setError('תקופת ההימורים למחזור זה הסתיימה. לא ניתן לשנות הימורים יותר.');
+            return;
+        }
 
         try {
-            const betId = `${user.uid}_${matchId}`;
             const newBet: Bet = {
-                uid: betId,
+                uid: `${user.uid}_${matchId}`,
                 userId: user.uid,
                 matchId,
                 round: selectedRound,
@@ -167,13 +192,15 @@ export default function RoundBetsPage() {
                 awayScore,
             };
 
-            await setDoc(doc(db, 'bets', betId), newBet);
+            // עדכון או הוספת הימור חדש
+            const updatedBets = bets.filter(bet => bet.matchId !== matchId);
+            updatedBets.push(newBet);
+
+            await saveRoundBets(user.uid, selectedRound, updatedBets, user.displayName || user.email);
             
             // עדכון המצב המקומי
-            setBets(prev => {
-                const filtered = prev.filter(bet => bet.matchId !== matchId);
-                return [...filtered, newBet];
-            });
+            setBets(updatedBets);
+            setHasExistingBets(true);
         } catch (error) {
             console.error('Error saving bet:', error);
             setError('שגיאה בשמירת ההימור. אנא נסה שוב.');
@@ -186,6 +213,36 @@ export default function RoundBetsPage() {
 
     const getTeamName = (teamId: string) => {
         return teams.find(team => team.uid === teamId)?.name || 'קבוצה לא ידועה';
+    };
+
+    const checkBettingStatus = (round: Round) => {
+        if (!round.startTime) {
+            setIsBettingAllowed(true);
+            setTimeRemaining('');
+            return;
+        }
+
+        const now = new Date();
+        const startDate = new Date(round.startTime);
+        const isExpired = now > startDate;
+        setIsBettingAllowed(!isExpired);
+
+        if (!isExpired) {
+            const timeDiff = startDate.getTime() - now.getTime();
+            const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+            
+            if (days > 0) {
+                setTimeRemaining(`${days} ימים ו-${hours} שעות`);
+            } else if (hours > 0) {
+                setTimeRemaining(`${hours} שעות ו-${minutes} דקות`);
+            } else {
+                setTimeRemaining(`${minutes} דקות`);
+            }
+        } else {
+            setTimeRemaining('');
+        }
     };
 
     const formatDateTime = (date: string, time: string) => {
@@ -230,7 +287,7 @@ export default function RoundBetsPage() {
                 <div className="flex items-center justify-between">
                     <div className="space-y-1">
                         <h1 className="text-2xl font-bold text-gray-900">הימורי מחזור</h1>
-                        <p className="text-sm text-gray-600">הימור על תוצאות מדויקות</p>
+                        <p className="text-sm text-gray-600">הימור על תוצאות מדויקות - עונה {currentSeason}</p>
                     </div>
                     <Button 
                         variant="outline" 
@@ -241,6 +298,18 @@ export default function RoundBetsPage() {
                         חזרה לדף הבית
                     </Button>
                 </div>
+
+                {/* Existing Bets Warning */}
+                {hasExistingBets && (
+                    <Card className="bg-yellow-50 border-yellow-200">
+                        <CardContent className="p-4">
+                            <h3 className="font-semibold text-yellow-900 mb-2">הימורים קיימים</h3>
+                            <p className="text-sm text-yellow-800">
+                                יש לך הימורים שמורים למחזור זה. שמירת הימור חדש תחליף את ההימור הקיים.
+                            </p>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {/* Round Selection */}
                 <Card className="bg-white rounded-xl shadow-sm">
@@ -273,14 +342,40 @@ export default function RoundBetsPage() {
                                 <div>
                                     <h3 className="font-semibold text-blue-900">מחזור {currentRound.number}</h3>
                                     <p className="text-sm text-blue-700">
-                                        שעת נעילה: {formatDateTime(currentRound.closingTime, '00:00')}
+                                        שעת נעילה: {formatDateTime(currentRound.startTime, '00:00')}
                                     </p>
                                 </div>
-                                <div className="text-right">
-                                    <p className="text-sm text-blue-700">
-                                        סיום מחזור: {formatDateTime(currentRound.endTime, '00:00')}
-                                    </p>
-                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Betting Status */}
+                {currentRound && currentRound.startTime && (
+                    <Card className={isBettingAllowed ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}>
+                        <CardContent className="p-4">
+                            <div className="flex items-center gap-2">
+                                {isBettingAllowed ? (
+                                    <>
+                                        <Clock className="h-5 w-5 text-green-600" />
+                                        <div>
+                                            <h3 className="font-semibold text-green-900">הימורים פעילים</h3>
+                                            <p className="text-sm text-green-800">
+                                                נותרו {timeRemaining} עד סגירת ההימורים
+                                            </p>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Clock className="h-5 w-5 text-red-600" />
+                                        <div>
+                                            <h3 className="font-semibold text-red-900">תקופת ההימורים הסתיימה</h3>
+                                            <p className="text-sm text-red-800">
+                                                לא ניתן לשנות או להוסיף הימורים יותר
+                                            </p>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </CardContent>
                     </Card>
@@ -301,9 +396,7 @@ export default function RoundBetsPage() {
                                             </div>
                                             <div className="text-center mx-4">
                                                 <div className="text-sm text-gray-600">נגד</div>
-                                                <div className="text-xs text-gray-500">
-                                                    {formatDateTime(match.date, match.startTime)}
-                                                </div>
+
                                             </div>
                                             <div className="text-center flex-1">
                                                 <h3 className="font-semibold text-lg">{getTeamName(match.awayTeamId)}</h3>
@@ -329,9 +422,11 @@ export default function RoundBetsPage() {
                                                     type="number"
                                                     min="0"
                                                     max="20"
+                                                    data-match={`${match.uid}-home`}
                                                     className="w-16 h-12 text-center border rounded-lg"
                                                     placeholder="0"
                                                     defaultValue={getBetForMatch(match.uid)?.homeScore || ''}
+                                                    disabled={!isBettingAllowed}
                                                 />
                                             </div>
                                             <span className="text-lg font-semibold">-</span>
@@ -343,9 +438,11 @@ export default function RoundBetsPage() {
                                                     type="number"
                                                     min="0"
                                                     max="20"
+                                                    data-match={`${match.uid}-away`}
                                                     className="w-16 h-12 text-center border rounded-lg"
                                                     placeholder="0"
                                                     defaultValue={getBetForMatch(match.uid)?.awayScore || ''}
+                                                    disabled={!isBettingAllowed}
                                                 />
                                             </div>
                                             <Button
@@ -357,6 +454,7 @@ export default function RoundBetsPage() {
                                                     handleBet(match.uid, homeScore, awayScore);
                                                 }}
                                                 className="mr-4"
+                                                disabled={!isBettingAllowed}
                                             >
                                                 שמור הימור
                                             </Button>
@@ -373,9 +471,10 @@ export default function RoundBetsPage() {
                     <CardContent className="p-4">
                         <h3 className="font-semibold text-yellow-900 mb-2">חלוקת נקודות</h3>
                         <ul className="text-sm text-yellow-800 space-y-1">
-                            <li>• כיוון נכון: 1 נקודה</li>
+                            <li>• כיוון נכון (ניצחון/תיקו): 1 נקודה</li>
                             <li>• תוצאה מדויקת: 3 נקודות</li>
                             <li>• בונוס כפול אם רק אתה צדקת במשחק</li>
+                            <li>• משתתף שלא הימר לא יקבל נקודות</li>
                         </ul>
                     </CardContent>
                 </Card>

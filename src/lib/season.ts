@@ -22,4 +22,26 @@ export function getCurrentSeason(): string {
 export function getSeasonPath(): string {
   const path = `season/${getCurrentSeason()}`;
   return path;
+}
+
+// פונקציה לקבלת נתוני העונה הנוכחית
+export async function getCurrentSeasonData() {
+  try {
+    const { doc, getDoc } = await import('firebase/firestore');
+    const { db } = await import('./firebase');
+    
+    const currentSeason = getCurrentSeason();
+    const seasonRef = doc(db, 'season', currentSeason);
+    const seasonDoc = await getDoc(seasonRef);
+    
+    if (seasonDoc.exists()) {
+      const data = seasonDoc.data();
+      return data;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting season data:', error);
+    return null;
+  }
 } 

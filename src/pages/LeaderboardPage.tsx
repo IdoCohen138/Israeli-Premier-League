@@ -4,46 +4,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Trophy, Medal, Award, TrendingUp, TrendingDown, Minus, Users } from "lucide-react";
-import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { getSeasonPath } from "@/lib/season";
-import { LeaderboardEntry } from "@/types";
+import { PlayerBets } from "@/types";
+import { getLeaderboard } from "@/lib/playerBets";
+import { getCurrentSeason } from "@/lib/season";
 
 export default function LeaderboardPage() {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+    const [leaderboard, setLeaderboard] = useState<PlayerBets[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [userRank, setUserRank] = useState<number | null>(null);
+    const [currentSeason, setCurrentSeason] = useState<string>('');
 
     useEffect(() => {
+        setCurrentSeason(getCurrentSeason());
         loadLeaderboard();
     }, []);
 
     const loadLeaderboard = async () => {
         try {
-            const seasonPath = getSeasonPath();
-
-            // טעינת טבלת מיקומים
-            const leaderboardQuery = query(
-                collection(db, 'leaderboard'),
-                orderBy('totalPoints', 'desc'),
-                limit(50)
-            );
-            const leaderboardSnapshot = await getDocs(leaderboardQuery);
-            const leaderboardData = leaderboardSnapshot.docs.map(doc => ({ 
-                uid: doc.id, 
-                ...doc.data() 
-            } as LeaderboardEntry));
-            
+            // טעינת טבלת מיקומים מהמערכת החדשה
+            const leaderboardData = await getLeaderboard();
             setLeaderboard(leaderboardData);
 
             // מציאת המיקום של המשתמש הנוכחי
             if (user) {
-                const userEntry = leaderboardData.find(entry => entry.uid === user.uid);
+                const userEntry = leaderboardData.find(entry => entry.userId === user.uid);
                 if (userEntry) {
-                    const rank = leaderboardData.findIndex(entry => entry.uid === user.uid) + 1;
+                    const rank = leaderboardData.findIndex(entry => entry.userId === user.uid) + 1;
                     setUserRank(rank);
                 }
             }
@@ -132,7 +121,7 @@ export default function LeaderboardPage() {
                 <div className="flex items-center justify-between">
                     <div className="space-y-1">
                         <h1 className="text-2xl font-bold text-gray-900">טבלת מיקומים</h1>
-                        <p className="text-sm text-gray-600">דירוג השחקנים לפי נקודות</p>
+                        <p className="text-sm text-gray-600">דירוג השחקנים לפי נקודות - עונה {currentSeason}</p>
                     </div>
                     <Button 
                         variant="outline" 
@@ -158,7 +147,7 @@ export default function LeaderboardPage() {
                                 </div>
                                 <div className="text-right">
                                     <p className="text-lg font-bold text-blue-900">
-                                        {leaderboard.find(entry => entry.uid === user?.uid)?.totalPoints || 0} נקודות
+                                        {leaderboard.find(entry => entry.userId === user?.uid)?.totalPoints || 0} נקודות
                                     </p>
                                 </div>
                             </div>
@@ -184,7 +173,7 @@ export default function LeaderboardPage() {
                             <div className="flex items-center gap-3">
                                 <TrendingUp className="h-8 w-8 text-green-500" />
                                 <div>
-                                    <p className="text-sm text-gray-600">המנצח</p>
+                                    <p className="text-sm text-gray-600">המוביל</p>
                                     <p className="text-lg font-bold text-gray-900">
                                         {leaderboard[0]?.displayName || 'טרם נקבע'}
                                     </p>
@@ -212,42 +201,58 @@ export default function LeaderboardPage() {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <Trophy className="h-5 w-5" />
-                            דירוג כללי
+                            דירוג שחקנים
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="space-y-3">
-                            {leaderboard.map((entry, index) => (
-                                <div
-                                    key={entry.uid}
-                                    className={`flex items-center justify-between p-4 rounded-lg border ${
-                                        entry.uid === user?.uid ? 'bg-blue-50 border-blue-200' : getRankColor(index + 1)
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2">
-                                            {getRankIcon(index + 1)}
-                                            <span className="font-semibold text-gray-900">
-                                                {entry.displayName}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-6">
-                                        <div className="text-right">
-                                            <p className="text-sm text-gray-600">נקודות</p>
-                                            <p className="font-bold text-gray-900">{entry.totalPoints}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-sm text-gray-600">תחזיות מדויקות</p>
-                                            <p className="font-medium text-gray-900">{entry.exactPredictions}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-sm text-gray-600">תחזיות נכונות</p>
-                                            <p className="font-medium text-gray-900">{entry.correctPredictions}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b">
+                                        <th className="text-right py-3 px-4 font-semibold">מיקום</th>
+                                        <th className="text-right py-3 px-4 font-semibold">שחקן</th>
+                                        <th className="text-right py-3 px-4 font-semibold">סה"כ נקודות</th>
+                                        <th className="text-right py-3 px-4 font-semibold">הימורים מקדימים</th>
+                                        <th className="text-right py-3 px-4 font-semibold">הימורי מחזורים</th>
+                                        <th className="text-right py-3 px-4 font-semibold">תחזיות נכונות</th>
+                                        <th className="text-right py-3 px-4 font-semibold">תחזיות מדויקות</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {leaderboard.map((entry, index) => (
+                                        <tr 
+                                            key={entry.uid} 
+                                            className={`border-b hover:bg-gray-50 ${getRankColor(index + 1)}`}
+                                        >
+                                            <td className="py-3 px-4">
+                                                <div className="flex items-center gap-2">
+                                                    {getRankIcon(index + 1)}
+                                                </div>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <div>
+                                                    <p className="font-medium">{entry.displayName || 'שחקן אנונימי'}</p>
+                                                </div>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <span className="font-bold text-lg">{entry.totalPoints || 0}</span>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <span className="text-green-600 font-medium">{entry.preSeasonPoints || 0}</span>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <span className="text-blue-600 font-medium">{entry.roundPoints || 0}</span>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <span className="text-gray-600">{entry.correctPredictions || 0}</span>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <span className="text-purple-600 font-medium">{entry.exactPredictions || 0}</span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     </CardContent>
                 </Card>
