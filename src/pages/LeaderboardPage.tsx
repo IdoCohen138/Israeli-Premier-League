@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Trophy, Medal, Award, TrendingUp, TrendingDown, Minus, Users } from "lucide-react";
+import { ArrowRight, Trophy, Medal, Award, TrendingUp, Users } from "lucide-react";
 import { PlayerBets } from "@/types";
 import { getLeaderboard } from "@/lib/playerBets";
 import { getCurrentSeason } from "@/lib/season";
@@ -70,25 +70,6 @@ export default function LeaderboardPage() {
         }
     };
 
-    const getPointsChangeIcon = (change: number) => {
-        if (change > 0) {
-            return <TrendingUp className="h-4 w-4 text-green-500" />;
-        } else if (change < 0) {
-            return <TrendingDown className="h-4 w-4 text-red-500" />;
-        } else {
-            return <Minus className="h-4 w-4 text-gray-400" />;
-        }
-    };
-
-    const formatPointsChange = (change: number) => {
-        if (change > 0) {
-            return `+${change}`;
-        } else if (change < 0) {
-            return `${change}`;
-        } else {
-            return '0';
-        }
-    };
 
     if (loading) {
         return (

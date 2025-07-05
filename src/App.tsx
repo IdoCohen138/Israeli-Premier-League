@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate} from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
@@ -11,7 +11,6 @@ import './App.css';
 // Component to protect routes that require authentication
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  const location = useLocation();
 
   if (loading) {
     return (
@@ -32,8 +31,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutesContent() {
-  const { user, loading } = useAuth();
-  const location = useLocation();
   
   
   return (

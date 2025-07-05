@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Plus, Edit, Trash2, Calendar, Clock, Users, Settings, Trophy, Target, X } from "lucide-react";
 import { Match, Round, Team, User, Player } from "@/types";
-import { collection, doc, getDocs, setDoc, deleteDoc, addDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
 import { getCurrentSeason } from "@/lib/season";
@@ -277,30 +277,6 @@ export default function AdminPage() {
             }
         } catch (error) {
             console.error('Error deleting match:', error);
-        }
-    };
-
-    const handleCancelMatch = async (roundNumber: number, matchId: string) => {
-        try {
-            // עדכון המשחק בקולקשן של המחזור
-            const matchRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString(), 'matches', matchId);
-            await updateDoc(matchRef, { isCancelled: true });
-            
-            // עדכון ה-state
-            setRounds(prev => prev.map(r => 
-                r.number === roundNumber 
-                    ? { 
-                        ...r, 
-                        matchesDetails: (r.matchesDetails || []).map(match => 
-                            match.uid === matchId 
-                                ? { ...match, isCancelled: true }
-                                : match
-                        )
-                    }
-                    : r
-            ));
-        } catch (error) {
-            console.error('Error cancelling match:', error);
         }
     };
 
@@ -783,7 +759,7 @@ export default function AdminPage() {
                                                     {(round.matchesDetails || []).length > 0 && (
                                                         <div className="text-xs text-gray-500">
                                                             <p className="font-medium mb-1">משחקי המחזור:</p>
-                                                            {(round.matchesDetails || []).slice(0, 3).map((match, index) => (
+                                                            {(round.matchesDetails || []).slice(0, 3).map((match) => (
                                                                 <div key={match.uid} className="flex items-center gap-2 mb-1">
                                                                     <TeamLogo teamId={match.homeTeamId} size="sm" />
                                                                     <span className="text-xs">

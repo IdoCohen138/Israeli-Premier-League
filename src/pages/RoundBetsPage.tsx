@@ -3,15 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Calendar, Clock, Target } from "lucide-react";
+import { ArrowRight, Calendar, Clock } from "lucide-react";
 import { Match, Round, Bet, Team } from "@/types";
 import { collection, doc, getDocs, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getSeasonPath, getCurrentSeason } from "@/lib/season";
 import { 
     saveRoundBets, 
-    getPlayerRoundBets, 
-    hasPlayerBetOnRound 
+    getPlayerRoundBets
 } from "@/lib/playerBets";
 import TeamLogo from "@/components/TeamLogo";
 

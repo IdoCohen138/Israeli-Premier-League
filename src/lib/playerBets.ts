@@ -307,7 +307,6 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
     const allBetsForRound: { [matchId: string]: { [userId: string]: { homeScore: number; awayScore: number } } } = {};
     
     for (const playerDoc of playersSnapshot.docs) {
-      const playerData = playerDoc.data();
       const userId = playerDoc.id;
       const roundBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId, 'roundBetsCollection', roundNumber.toString());
       const roundBetsDoc = await getDoc(roundBetsRef);
@@ -341,7 +340,6 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
       
       // חישוב נקודות לכל משתמש למשחק זה
       for (const playerDoc of playersSnapshot.docs) {
-        const playerData = playerDoc.data();
         const userId = playerDoc.id;
         
         // קבלת ההימורים של המשתמש למחזור זה
@@ -574,7 +572,6 @@ export const deleteRoundPoints = async (roundNumber: number): Promise<void> => {
     console.log(`Found ${playersSnapshot.docs.length} players to update`);
     
     for (const playerDoc of playersSnapshot.docs) {
-      const playerData = playerDoc.data();
       const userId = playerDoc.id;
       
       // קבלת ההימורים של המשתמש למחזור זה
@@ -651,7 +648,6 @@ export const recalculatePlayerPoints = async (userId: string): Promise<void> => 
     // חישוב נקודות מכל מחזור
     for (const roundDoc of roundsSnapshot.docs) {
       const roundNumber = parseInt(roundDoc.id);
-      const roundData = roundDoc.data();
       
       // קבלת ההימורים של המשתמש למחזור זה
       const userRoundBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId, 'roundBetsCollection', roundNumber.toString());
