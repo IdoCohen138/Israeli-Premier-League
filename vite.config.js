@@ -12,5 +12,13 @@ export default defineConfig({
         port: 3001,
         host: true,
         open: true
-    }
+    },
+    build: {
+        rollupOptions: {
+            input: {
+                main: resolve(__dirname, 'index.html'),
+            },
+        },
+    },
+    publicDir: 'public',
 });
