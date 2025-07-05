@@ -30,6 +30,7 @@ export default function RoundBetsPage() {
     const [isBettingAllowed, setIsBettingAllowed] = useState(true);
     const [timeRemaining, setTimeRemaining] = useState<string>('');
     const [betSaved, setBetSaved] = useState<Record<string, boolean>>({});
+    const [isRoundDataLoaded, setIsRoundDataLoaded] = useState(false);
 
     useEffect(() => {
         setCurrentSeason(getCurrentSeason());
@@ -119,6 +120,10 @@ export default function RoundBetsPage() {
     const loadRoundData = async (roundNumber: number) => {
         if (!user) return;
         
+        // איפוס מצב הטעינה
+        setIsRoundDataLoaded(false);
+        setHasExistingBets(false);
+        
         try {
             const seasonPath = getSeasonPath();
             console.log('=== DEBUG: loadRoundData ===');
@@ -164,13 +169,18 @@ export default function RoundBetsPage() {
                     setBets([]);
                     setHasExistingBets(false);
                 }
+                
+                // סימון שהנתונים נטענו
+                setIsRoundDataLoaded(true);
             } else {
                 console.log('Round document does not exist!');
                 setCurrentRound(null);
+                setIsRoundDataLoaded(true);
             }
         } catch (error) {
             console.error('Error loading round data:', error);
             setError('שגיאה בטעינת נתוני המחזור. אנא נסה שוב.');
+            setIsRoundDataLoaded(true);
         }
     };
 
@@ -184,7 +194,6 @@ export default function RoundBetsPage() {
 
         try {
             const newBet: Bet = {
-                uid: `${user.uid}_${matchId}`,
                 userId: user.uid,
                 matchId,
                 round: selectedRound,
@@ -224,38 +233,65 @@ export default function RoundBetsPage() {
             return;
         }
 
-        const now = new Date();
-        const startDate = new Date(round.startTime);
-        const isExpired = now > startDate;
-        setIsBettingAllowed(!isExpired);
-
-        if (!isExpired) {
-            const timeDiff = startDate.getTime() - now.getTime();
-            const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-            const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-            const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+        try {
+            const now = new Date();
+            const startDate = new Date(round.startTime);
             
-            if (days > 0) {
-                setTimeRemaining(`${days} ימים ו-${hours} שעות`);
-            } else if (hours > 0) {
-                setTimeRemaining(`${hours} שעות ו-${minutes} דקות`);
-            } else {
-                setTimeRemaining(`${minutes} דקות`);
+            // בדיקה שהתאריך תקין
+            if (isNaN(startDate.getTime())) {
+                console.error('Invalid startTime:', round.startTime);
+                setIsBettingAllowed(true);
+                setTimeRemaining('');
+                return;
             }
-        } else {
+            
+            const isExpired = now > startDate;
+            setIsBettingAllowed(!isExpired);
+
+            if (!isExpired) {
+                const timeDiff = startDate.getTime() - now.getTime();
+                const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+                const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+                
+                if (days > 0) {
+                    setTimeRemaining(`${days} ימים ו-${hours} שעות`);
+                } else if (hours > 0) {
+                    setTimeRemaining(`${hours} שעות ו-${minutes} דקות`);
+                } else {
+                    setTimeRemaining(`${minutes} דקות`);
+                }
+            } else {
+                setTimeRemaining('');
+            }
+        } catch (error) {
+            console.error('Error checking betting status:', error);
+            setIsBettingAllowed(true);
             setTimeRemaining('');
         }
     };
 
-    const formatDateTime = (date: string, time: string) => {
-        const dateObj = new Date(`${date}T${time}`);
-        return dateObj.toLocaleString('he-IL', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+    const formatDateTime = (dateTimeString: string) => {
+        if (!dateTimeString) return 'לא נקבע';
+        
+        try {
+            const dateObj = new Date(dateTimeString);
+            if (isNaN(dateObj.getTime())) {
+                console.error('Invalid date string:', dateTimeString);
+                return 'תאריך לא תקין';
+            }
+            
+            return dateObj.toLocaleString('he-IL', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        } catch (error) {
+            console.error('Error formatting date:', error, dateTimeString);
+            return 'תאריך לא תקין';
+        }
     };
 
     if (loading) {
@@ -301,18 +337,6 @@ export default function RoundBetsPage() {
                     </Button>
                 </div>
 
-                {/* Existing Bets Warning */}
-                {hasExistingBets && (
-                    <Card className="bg-yellow-50 border-yellow-200">
-                        <CardContent className="p-4">
-                            <h3 className="font-semibold text-yellow-900 mb-2">הימורים קיימים</h3>
-                            <p className="text-sm text-yellow-800">
-                                יש לך הימורים שמורים למחזור זה. שמירת הימור חדש תחליף את ההימור הקיים.
-                            </p>
-                        </CardContent>
-                    </Card>
-                )}
-
                 {/* Round Selection */}
                 <Card className="bg-white rounded-xl shadow-sm">
                     <CardHeader>
@@ -341,15 +365,38 @@ export default function RoundBetsPage() {
                     </CardContent>
                 </Card>
 
-                {/* Current Round Info */}
-                {currentRound && (
-                    <Card className="bg-blue-50 border-blue-200">
+                {/* Betting Status */}
+                {currentRound && currentRound.startTime && (
+                    <Card className={isBettingAllowed ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}>
                         <CardContent className="p-4">
                             <div className="flex items-center justify-between">
-                                <div>
-                                    <h3 className="font-semibold text-blue-900">מחזור {currentRound.number}</h3>
-                                    <p className="text-sm text-blue-700">
-                                        שעת נעילה: {formatDateTime(currentRound.startTime, '00:00')}
+                                <div className="flex items-center gap-2">
+                                    {isBettingAllowed ? (
+                                        <>
+                                            <Clock className="h-5 w-5 text-green-600" />
+                                            <div>
+                                                <h3 className="font-semibold text-green-900">מחזור {currentRound.number} - הימורים פעילים</h3>
+                                                <p className="text-sm text-green-800">
+                                                    נותרו {timeRemaining} עד סגירת ההימורים
+                                                </p>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Clock className="h-5 w-5 text-red-600" />
+                                            <div>
+                                                <h3 className="font-semibold text-red-900">מחזור {currentRound.number} - תקופת ההימורים הסתיימה</h3>
+                                                <p className="text-sm text-red-800">
+                                                    לא ניתן לשנות או להוסיף הימורים יותר
+                                                </p>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-xs text-gray-600">שעת נעילה</p>
+                                    <p className="text-sm font-medium">
+                                        {formatDateTime(currentRound.startTime)}
                                     </p>
                                 </div>
                             </div>
@@ -357,33 +404,30 @@ export default function RoundBetsPage() {
                     </Card>
                 )}
 
-                {/* Betting Status */}
-                {currentRound && currentRound.startTime && (
-                    <Card className={isBettingAllowed ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}>
+                {/* Current Round Info - רק אם אין שעת נעילה */}
+                {currentRound && !currentRound.startTime && (
+                    <Card className="bg-blue-50 border-blue-200">
                         <CardContent className="p-4">
-                            <div className="flex items-center gap-2">
-                                {isBettingAllowed ? (
-                                    <>
-                                        <Clock className="h-5 w-5 text-green-600" />
-                                        <div>
-                                            <h3 className="font-semibold text-green-900">הימורים פעילים</h3>
-                                            <p className="text-sm text-green-800">
-                                                נותרו {timeRemaining} עד סגירת ההימורים
-                                            </p>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Clock className="h-5 w-5 text-red-600" />
-                                        <div>
-                                            <h3 className="font-semibold text-red-900">תקופת ההימורים הסתיימה</h3>
-                                            <p className="text-sm text-red-800">
-                                                לא ניתן לשנות או להוסיף הימורים יותר
-                                            </p>
-                                        </div>
-                                    </>
-                                )}
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="font-semibold text-blue-900">מחזור {currentRound.number}</h3>
+                                    <p className="text-sm text-blue-700">
+                                        שעת נעילה לא נקבעה
+                                    </p>
+                                </div>
                             </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Existing Bets Warning - רק אם ההימורים פעילים והנתונים נטענו */}
+                {hasExistingBets && isBettingAllowed && isRoundDataLoaded && (
+                    <Card className="bg-yellow-50 border-yellow-200">
+                        <CardContent className="p-4">
+                            <h3 className="font-semibold text-yellow-900 mb-2">הימורים קיימים</h3>
+                            <p className="text-sm text-yellow-800">
+                                יש לך הימורים שמורים למחזור זה. שמירת הימור חדש תחליף את ההימור הקיים.
+                            </p>
                         </CardContent>
                     </Card>
                 )}

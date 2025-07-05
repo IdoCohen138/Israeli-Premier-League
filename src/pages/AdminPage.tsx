@@ -3,13 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Plus, Edit, Trash2, Calendar, Clock, Users, Settings, Trophy, Target } from "lucide-react";
+import { ArrowRight, Plus, Edit, Trash2, Calendar, Clock, Users, Settings, Trophy, Target, X } from "lucide-react";
 import { Match, Round, Team, User, Player } from "@/types";
 import { collection, doc, getDocs, setDoc, deleteDoc, addDoc, updateDoc } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
 import { getCurrentSeason } from "@/lib/season";
-import { calculateRoundPoints, calculatePreSeasonPoints } from "@/lib/playerBets";
+import { calculateRoundPoints, calculatePreSeasonPoints, deleteRoundPoints, recalculatePlayerPoints } from "@/lib/playerBets";
 import TeamLogo from "@/components/TeamLogo";
 
 export default function AdminPage() {
@@ -37,6 +37,12 @@ export default function AdminPage() {
     const [players, setPlayers] = useState<Player[]>([]);
     const [playerSearchTerm, setPlayerSearchTerm] = useState('');
     const [assistSearchTerm, setAssistSearchTerm] = useState('');
+    
+    // State חדש לניהול חלון הוספת משחקים
+    const [showAddMatchesModal, setShowAddMatchesModal] = useState(false);
+    const [newRoundNumber, setNewRoundNumber] = useState<number>(0);
+    const [newMatches, setNewMatches] = useState<Omit<Match, 'uid' | 'round'>[]>([]);
+    const [editingMatches, setEditingMatches] = useState<number | null>(null);
 
     useEffect(() => {
         if (user?.role !== 'admin') {
@@ -108,29 +114,97 @@ export default function AdminPage() {
 
     const handleAddRound = async () => {
         const roundNumber = rounds.length + 1;
-        const newRound: Round = {
-            number: roundNumber,
-            matches: [],
-            startTime: new Date().toISOString().slice(0, 16), // YYYY-MM-DDTHH:MM format
-            isActive: false,
-        };
+        setNewRoundNumber(roundNumber);
+        setNewMatches([]);
+        setShowAddMatchesModal(true);
+    };
+
+    const handleSaveRoundWithMatches = async () => {
+        if (newMatches.length === 0) {
+            alert('עליך להוסיף לפחות משחק אחד למחזור');
+            return;
+        }
 
         try {
-            await setDoc(doc(db, 'season', currentSeason, 'rounds', roundNumber.toString()), newRound);
-            setRounds(prev => [...prev, newRound]);
+            // יצירת המחזור
+            const newRound: Round = {
+                number: newRoundNumber,
+                matches: [],
+                startTime: new Date().toISOString().slice(0, 16),
+                isActive: false,
+            };
+
+            await setDoc(doc(db, 'season', currentSeason, 'rounds', newRoundNumber.toString()), newRound);
+
+            // הוספת המשחקים
+            const matchIds: string[] = [];
+            for (const matchData of newMatches) {
+                const matchId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+                const newMatch: Match = {
+                    uid: matchId,
+                    round: newRoundNumber,
+                    ...matchData
+                };
+
+                await setDoc(doc(db, 'season', currentSeason, 'rounds', newRoundNumber.toString(), 'matches', matchId), newMatch);
+                matchIds.push(matchId);
+            }
+
+            // עדכון המחזור עם רשימת המשחקים
+            await updateDoc(doc(db, 'season', currentSeason, 'rounds', newRoundNumber.toString()), {
+                matches: matchIds
+            });
+
+            // סגירת החלון ורענון הנתונים
+            setShowAddMatchesModal(false);
+            setNewMatches([]);
+            setNewRoundNumber(0);
+            await loadData();
+
+            alert('המחזור והמשחקים נוצרו בהצלחה!');
         } catch (error) {
-            console.error('Error adding round:', error);
+            console.error('Error creating round with matches:', error);
+            alert('שגיאה ביצירת המחזור. אנא נסה שוב.');
         }
     };
 
+    const handleAddNewMatch = () => {
+        const newMatch: Omit<Match, 'uid' | 'round'> = {
+            homeTeam: '',
+            homeTeamId: '',
+            awayTeam: '',
+            awayTeamId: '',
+            date: new Date().toISOString().split('T')[0],
+            startTime: '20:00',
+        };
+        setNewMatches(prev => [...prev, newMatch]);
+    };
+
+    const handleRemoveNewMatch = (index: number) => {
+        setNewMatches(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleUpdateNewMatch = (index: number, field: keyof Omit<Match, 'uid' | 'round'>, value: string) => {
+        setNewMatches(prev => prev.map((match, i) => 
+            i === index ? { ...match, [field]: value } : match
+        ));
+    };
+
     const handleDeleteRound = async (roundNumber: number) => {
-        if (!confirm('האם אתה בטוח שברצונך למחוק מחזור זה?')) return;
+        if (!confirm('האם אתה בטוח שברצונך למחוק מחזור זה? זה ימחק גם את כל ההימורים והנקודות של המשתמשים במחזור זה.')) return;
 
         try {
+            // מחיקת הנקודות של המשתמשים במחזור זה
+            await deleteRoundPoints(roundNumber);
+            
+            // מחיקת המחזור
             await deleteDoc(doc(db, 'season', currentSeason, 'rounds', roundNumber.toString()));
             setRounds(prev => prev.filter(round => round.number !== roundNumber));
+            
+            alert('המחזור נמחק בהצלחה! כל ההימורים והנקודות של המשתמשים במחזור זה נמחקו.');
         } catch (error) {
             console.error('Error deleting round:', error);
+            alert('שגיאה במחיקת המחזור. אנא נסה שוב.');
         }
     };
 
@@ -243,6 +317,18 @@ export default function AdminPage() {
         }
     };
 
+    const handleRecalculateUserPoints = async (userId: string) => {
+        if (!confirm('האם אתה בטוח שברצונך לחשב מחדש את הנקודות של משתמש זה? זה עלול לקחת זמן.')) return;
+        
+        try {
+            await recalculatePlayerPoints(userId);
+            alert('הנקודות חושבו מחדש בהצלחה!');
+        } catch (error) {
+            console.error('Error recalculating user points:', error);
+            alert('שגיאה בחישוב מחדש של הנקודות. אנא נסה שוב.');
+        }
+    };
+
     const handleEditRound = (round: Round) => {
         setEditingRound(round.number);
         setRoundEditData({
@@ -259,6 +345,7 @@ export default function AdminPage() {
                 startTime: roundEditData.startTime
             });
 
+            // עדכון ה-state
             setRounds(prev => prev.map(round => 
                 round.number === editingRound 
                     ? { 
@@ -270,8 +357,14 @@ export default function AdminPage() {
 
             setEditingRound(null);
             setRoundEditData({ startTime: '' });
+            
+            // רענון הנתונים כדי לוודא שהשינויים נשמרו
+            await loadData();
+            
+            alert('שעת הנעילה עודכנה בהצלחה!');
         } catch (error) {
             console.error('Error updating round:', error);
+            alert('שגיאה בעדכון שעת הנעילה. אנא נסה שוב.');
         }
     };
 
@@ -302,7 +395,16 @@ export default function AdminPage() {
                 
                 // חישוב נקודות
                 console.log('About to calculate round points...');
-                await calculateRoundPoints(roundNumber);
+                const calculationResult = await calculateRoundPoints(roundNumber);
+                
+                if (calculationResult.hasIncompleteMatches) {
+                    const confirmMessage = `יש משחקים ללא תוצאות:\n${calculationResult.incompleteMatches.join('\n')}\n\nהאם אתה בטוח שברצונך להמשיך?`;
+                    if (!confirm(confirmMessage)) {
+                        console.log('Points calculation cancelled by admin');
+                        return;
+                    }
+                }
+                
                 console.log('Round points calculated successfully');
                 
                 setEditingResults(null);
@@ -342,6 +444,54 @@ export default function AdminPage() {
             alert('שגיאה בשמירת תוצאות סוף עונה. אנא נסה שוב.');
         }
     };
+
+    const handleEditMatches = (roundNumber: number) => {
+        setEditingMatches(roundNumber);
+    };
+
+    const handleSaveMatchesEdit = async (roundNumber: number) => {
+        try {
+            const round = rounds.find(r => r.number === roundNumber);
+            if (!round || !round.matchesDetails) return;
+
+            // שמירת השינויים לכל משחק
+            for (const match of round.matchesDetails) {
+                const matchRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString(), 'matches', match.uid);
+                await updateDoc(matchRef, {
+                    homeTeam: match.homeTeam,
+                    homeTeamId: match.homeTeamId,
+                    awayTeam: match.awayTeam,
+                    awayTeamId: match.awayTeamId,
+                    date: match.date,
+                    startTime: match.startTime
+                });
+            }
+
+            setEditingMatches(null);
+            await loadData();
+            alert('המשחקים עודכנו בהצלחה!');
+        } catch (error) {
+            console.error('Error updating matches:', error);
+            alert('שגיאה בעדכון המשחקים. אנא נסה שוב.');
+        }
+    };
+
+    const handleUpdateMatch = (roundNumber: number, matchId: string, field: keyof Match, value: any) => {
+        setRounds(prev => prev.map(round => 
+            round.number === roundNumber 
+                ? {
+                    ...round,
+                    matchesDetails: (round.matchesDetails || []).map(match => 
+                        match.uid === matchId 
+                            ? { ...match, [field]: value }
+                            : match
+                    )
+                }
+                : round
+        ));
+    };
+
+
 
     if (loading) {
         return (
@@ -460,6 +610,16 @@ export default function AdminPage() {
                                                         size="sm"
                                                         onClick={() => handleEditRound(round)}
                                                         className="text-blue-600 hover:text-blue-700"
+                                                        title="ערוך שעת סגירת הימורים"
+                                                    >
+                                                        <Clock size={16} />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => handleEditMatches(round.number)}
+                                                        className="text-green-600 hover:text-green-700"
+                                                        title="ערוך משחקים"
                                                     >
                                                         <Edit size={16} />
                                                     </Button>
@@ -506,15 +666,139 @@ export default function AdminPage() {
                                                         </Button>
                                                     </div>
                                                 </div>
+                                            ) : editingMatches === round.number ? (
+                                                <div className="space-y-3">
+                                                    <div className="text-sm text-gray-600 mb-3">
+                                                        <p className="font-medium mb-2">עריכת משחקים:</p>
+                                                        {(round.matchesDetails || []).map((match, index) => (
+                                                            <div key={match.uid} className="p-3 border rounded-lg bg-gray-50 space-y-2">
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="text-sm font-medium">משחק {index + 1}</span>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={() => handleDeleteMatch(round.number, match.uid)}
+                                                                        className="text-red-600 hover:text-red-700"
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                    </Button>
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-2">
+                                                                    <div>
+                                                                        <label className="block text-xs text-gray-600 mb-1">קבוצת בית</label>
+                                                                        <select
+                                                                            value={match.homeTeamId}
+                                                                            onChange={(e) => {
+                                                                                const team = teams.find(t => t.uid === e.target.value);
+                                                                                handleUpdateMatch(round.number, match.uid, 'homeTeamId', e.target.value);
+                                                                                handleUpdateMatch(round.number, match.uid, 'homeTeam', team?.name || '');
+                                                                            }}
+                                                                            className="w-full px-2 py-1 text-sm border rounded"
+                                                                        >
+                                                                            <option value="">בחר קבוצה</option>
+                                                                            {teams.map(team => (
+                                                                                <option key={team.uid} value={team.uid}>
+                                                                                    {team.name}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="block text-xs text-gray-600 mb-1">קבוצת חוץ</label>
+                                                                        <select
+                                                                            value={match.awayTeamId}
+                                                                            onChange={(e) => {
+                                                                                const team = teams.find(t => t.uid === e.target.value);
+                                                                                handleUpdateMatch(round.number, match.uid, 'awayTeamId', e.target.value);
+                                                                                handleUpdateMatch(round.number, match.uid, 'awayTeam', team?.name || '');
+                                                                            }}
+                                                                            className="w-full px-2 py-1 text-sm border rounded"
+                                                                        >
+                                                                            <option value="">בחר קבוצה</option>
+                                                                            {teams.map(team => (
+                                                                                <option key={team.uid} value={team.uid}>
+                                                                                    {team.name}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-2">
+                                                                    <div>
+                                                                        <label className="block text-xs text-gray-600 mb-1">תאריך</label>
+                                                                        <input
+                                                                            type="date"
+                                                                            value={match.date}
+                                                                            onChange={(e) => handleUpdateMatch(round.number, match.uid, 'date', e.target.value)}
+                                                                            className="w-full px-2 py-1 text-sm border rounded"
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="block text-xs text-gray-600 mb-1">שעה</label>
+                                                                        <input
+                                                                            type="time"
+                                                                            value={match.startTime}
+                                                                            onChange={(e) => handleUpdateMatch(round.number, match.uid, 'startTime', e.target.value)}
+                                                                            className="w-full px-2 py-1 text-sm border rounded"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => handleAddMatch(round.number)}
+                                                            className="w-full mt-2"
+                                                        >
+                                                            <Plus size={14} />
+                                                            הוסף משחק
+                                                        </Button>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => handleSaveMatchesEdit(round.number)}
+                                                            className="flex-1"
+                                                        >
+                                                            שמור משחקים
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => setEditingMatches(null)}
+                                                            className="flex-1"
+                                                        >
+                                                            ביטול
+                                                        </Button>
+                                                    </div>
+                                                </div>
                                             ) : (
                                                 <>
                                                     <div className="text-sm text-gray-600">
                                                         <p>משחקים: {round.matchesDetails?.length || 0}</p>
-                                                        <p>סטטוס: {round.isActive ? 'פעיל' : 'לא פעיל'}</p>
                                                         {round.startTime && (
                                                             <p>תחילת מחזור: {new Date(round.startTime).toLocaleString('he-IL')}</p>
                                                         )}
                                                     </div>
+                                                    {(round.matchesDetails || []).length > 0 && (
+                                                        <div className="text-xs text-gray-500">
+                                                            <p className="font-medium mb-1">משחקי המחזור:</p>
+                                                            {(round.matchesDetails || []).slice(0, 3).map((match, index) => (
+                                                                <div key={match.uid} className="flex items-center gap-2 mb-1">
+                                                                    <TeamLogo teamId={match.homeTeamId} size="sm" />
+                                                                    <span className="text-xs">
+                                                                        {teams.find(t => t.uid === match.homeTeamId)?.name || match.homeTeam} 
+                                                                        vs 
+                                                                        {teams.find(t => t.uid === match.awayTeamId)?.name || match.awayTeam}
+                                                                    </span>
+                                                                    <TeamLogo teamId={match.awayTeamId} size="sm" />
+                                                                </div>
+                                                            ))}
+                                                            {(round.matchesDetails || []).length > 3 && (
+                                                                <p className="text-xs text-gray-400">ועוד {(round.matchesDetails || []).length - 3} משחקים...</p>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </>
                                             )}
                                         </CardContent>
@@ -912,6 +1196,15 @@ export default function AdminPage() {
                                                     <option value="user">משתמש</option>
                                                     <option value="admin">מנהל</option>
                                                 </select>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleRecalculateUserPoints(user.uid)}
+                                                    className="text-blue-600 hover:text-blue-700"
+                                                    title="חשב מחדש נקודות"
+                                                >
+                                                    <Settings size={14} />
+                                                </Button>
                                             </div>
                                         </div>
                                     ))}
@@ -956,6 +1249,154 @@ export default function AdminPage() {
                     </Card>
                 </div>
             </div>
+
+            {/* Modal להוספת משחקים למחזור חדש */}
+            {showAddMatchesModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div className="p-6 border-b">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-xl font-semibold">הוסף משחקים למחזור {newRoundNumber}</h2>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                        setShowAddMatchesModal(false);
+                                        setNewMatches([]);
+                                        setNewRoundNumber(0);
+                                    }}
+                                >
+                                    <X size={20} />
+                                </Button>
+                            </div>
+                        </div>
+                        
+                        <div className="p-6 space-y-4">
+                            <div className="text-sm text-gray-600">
+                                <p>הוסף משחקים למחזור החדש. עליך להוסיף לפחות משחק אחד.</p>
+                            </div>
+                            
+                            {newMatches.map((match, index) => (
+                                <div key={index} className="p-4 border rounded-lg bg-gray-50 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium">משחק {index + 1}</span>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleRemoveNewMatch(index)}
+                                            className="text-red-600 hover:text-red-700"
+                                        >
+                                            <Trash2 size={16} />
+                                        </Button>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                קבוצת בית
+                                            </label>
+                                            <select
+                                                value={match.homeTeamId}
+                                                onChange={(e) => {
+                                                    const team = teams.find(t => t.uid === e.target.value);
+                                                    handleUpdateNewMatch(index, 'homeTeamId', e.target.value);
+                                                    handleUpdateNewMatch(index, 'homeTeam', team?.name || '');
+                                                }}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            >
+                                                <option value="">בחר קבוצה</option>
+                                                {teams.map(team => (
+                                                    <option key={team.uid} value={team.uid}>
+                                                        {team.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                קבוצת חוץ
+                                            </label>
+                                            <select
+                                                value={match.awayTeamId}
+                                                onChange={(e) => {
+                                                    const team = teams.find(t => t.uid === e.target.value);
+                                                    handleUpdateNewMatch(index, 'awayTeamId', e.target.value);
+                                                    handleUpdateNewMatch(index, 'awayTeam', team?.name || '');
+                                                }}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            >
+                                                <option value="">בחר קבוצה</option>
+                                                {teams.map(team => (
+                                                    <option key={team.uid} value={team.uid}>
+                                                        {team.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                תאריך
+                                            </label>
+                                            <input
+                                                type="date"
+                                                value={match.date}
+                                                onChange={(e) => handleUpdateNewMatch(index, 'date', e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            />
+                                        </div>
+                                        
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                שעה
+                                            </label>
+                                            <input
+                                                type="time"
+                                                value={match.startTime}
+                                                onChange={(e) => handleUpdateNewMatch(index, 'startTime', e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            
+                            <Button
+                                onClick={handleAddNewMatch}
+                                variant="outline"
+                                className="w-full"
+                            >
+                                <Plus size={16} />
+                                הוסף משחק
+                            </Button>
+                        </div>
+                        
+                        <div className="p-6 border-t bg-gray-50 flex gap-3">
+                            <Button
+                                onClick={handleSaveRoundWithMatches}
+                                disabled={newMatches.length === 0}
+                                className="flex-1"
+                            >
+                                צור מחזור עם משחקים
+                            </Button>
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowAddMatchesModal(false);
+                                    setNewMatches([]);
+                                    setNewRoundNumber(0);
+                                }}
+                                className="flex-1"
+                            >
+                                ביטול
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 } 

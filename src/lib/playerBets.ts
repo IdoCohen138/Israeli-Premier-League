@@ -70,38 +70,52 @@ export const saveRoundBets = async (
     
     const now = new Date();
     
-    // איפוס נקודות לכל ההימורים החדשים
-    const betsWithResetPoints = bets.map(bet => ({
+    // שמירת ההימורים עם נקודות קיימות (אם יש) או איפוס אם זה הימור חדש
+    const betsWithPoints = bets.map(bet => ({
       ...bet,
-      points: 0, // איפוס נקודות כי זה הימור חדש
-      isExactResult: false,
-      isCorrectDirection: false
+      points: bet.points || 0, // שמירת נקודות קיימות או 0 אם אין
+      isExactResult: bet.isExactResult || false,
+      isCorrectDirection: bet.isCorrectDirection || false
     }));
     
     if (roundBetsDoc.exists()) {
       await updateDoc(roundBetsRef, {
-        bets: betsWithResetPoints,
+        bets: betsWithPoints,
         displayName,
         updatedAt: now,
       });
     } else {
-      const newPlayerBets: PlayerBets = {
-        displayName,
-        seasonId: currentSeason,
-        seasonName: currentSeason,
-        createdAt: now,
-        updatedAt: now,
-        preSeasonBets: {},
-        totalPoints: 0,
-        preSeasonPoints: 0,
-        roundPoints: {},
-        correctPredictions: 0,
-        exactPredictions: 0,
-      };
+      // בדיקה אם המשתמש כבר קיים במערכת
+      const playerBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId);
+      const playerBetsDoc = await getDoc(playerBetsRef);
       
-      await setDoc(doc(db, 'season', currentSeason, 'playerBets', userId), newPlayerBets);
+      if (!playerBetsDoc.exists()) {
+        // יצירת משתמש חדש רק אם הוא לא קיים
+        const newPlayerBets: PlayerBets = {
+          displayName,
+          seasonId: currentSeason,
+          seasonName: currentSeason,
+          createdAt: now,
+          updatedAt: now,
+          preSeasonBets: {},
+          totalPoints: 0,
+          preSeasonPoints: 0,
+          roundPoints: {},
+          correctPredictions: 0,
+          exactPredictions: 0,
+        };
+        
+        await setDoc(playerBetsRef, newPlayerBets);
+      } else {
+        // עדכון שם התצוגה אם השתנה
+        await updateDoc(playerBetsRef, {
+          displayName,
+          updatedAt: now,
+        });
+      }
+      
       await setDoc(roundBetsRef, {
-        bets: betsWithResetPoints,
+        bets: betsWithPoints,
         displayName,
         createdAt: now,
         updatedAt: now,
@@ -201,10 +215,20 @@ export const updatePlayerPoints = async (
   try {
     const currentSeason = getCurrentSeason();
     const playerBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId);
-    await updateDoc(playerBetsRef, {
+    
+    // קבלת הנתונים הנוכחיים כדי לוודא שכל השדות קיימים
+    const currentDoc = await getDoc(playerBetsRef);
+    const currentData = currentDoc.exists() ? currentDoc.data() : {};
+    
+    // מיזוג הנתונים החדשים עם הקיימים
+    const updatedData = {
+      ...currentData,
       ...points,
       updatedAt: new Date(),
-    });
+    };
+    
+    // שימוש ב-setDoc במקום updateDoc כדי לוודא שכל השדות נוצרים
+    await setDoc(playerBetsRef, updatedData, { merge: true });
   } catch (error) {
     console.error('Error updating player points:', error);
     throw error;
@@ -236,7 +260,7 @@ export const hasPlayerPreSeasonBets = async (userId: string): Promise<boolean> =
 };
 
 // חישוב נקודות למחזור
-export const calculateRoundPoints = async (roundNumber: number): Promise<void> => {
+export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIncompleteMatches: boolean; incompleteMatches: string[] }> => {
   console.log(`Starting to calculate points for round ${roundNumber}`);
   
   try {
@@ -256,6 +280,22 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<void> =
     const matches = matchesSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as Match));
     
     console.log(`Found ${matches.length} matches for round ${roundNumber}:`, matches);
+    
+    // בדיקת משחקים ללא תוצאות
+    const incompleteMatches = matches.filter(match => 
+      match.actualHomeScore === undefined || match.actualAwayScore === undefined
+    );
+    
+    if (incompleteMatches.length > 0) {
+      const incompleteMatchNames = incompleteMatches.map(match => 
+        `${match.homeTeam} vs ${match.awayTeam}`
+      );
+      console.log(`Found ${incompleteMatches.length} matches without results:`, incompleteMatchNames);
+      return {
+        hasIncompleteMatches: true,
+        incompleteMatches: incompleteMatchNames
+      };
+    }
     
     // קבלת כל המשתמשים
     const playerBetsRef = collection(db, 'season', currentSeason, 'playerBets');
@@ -291,9 +331,9 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<void> =
     
     // חישוב נקודות לכל משחק בנפרד
     for (const match of matches) {
-      // בדיקה אם יש תוצאות למשחק
+      // וידוא שיש תוצאות למשחק (אחרי הבדיקה למעלה זה אמור להיות בטוח)
       if (match.actualHomeScore === undefined || match.actualAwayScore === undefined) {
-        console.log(`Match ${match.uid} has no results yet, skipping...`);
+        console.warn(`Match ${match.uid} still has no results, skipping...`);
         continue;
       }
       
@@ -388,7 +428,9 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<void> =
               const newTotalPoints = (currentPlayerBets.totalPoints || 0) - pointsToSubtract + matchPoints;
               
               console.log(`User ${userId} earned ${matchPoints} points for match ${match.uid}. Round total: ${newRoundPoints}, Total: ${newTotalPoints}`);
+              console.log(`Current round points: ${currentRoundPoints}, Points to subtract: ${pointsToSubtract}, New points: ${matchPoints}`);
               
+              // עדכון הנקודות תמיד - גם אם הן 0, כדי שהמחזור יופיע בטבלת המיקומים
               await updatePlayerPoints(userId, {
                 totalPoints: newTotalPoints,
                 roundPoints: {
@@ -398,6 +440,8 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<void> =
                 correctPredictions: (currentPlayerBets.correctPredictions || 0) - correctPredictionsToSubtract + (isCorrectDirection ? 1 : 0),
                 exactPredictions: (currentPlayerBets.exactPredictions || 0) - exactPredictionsToSubtract + (isExact ? 1 : 0)
               });
+              
+              console.log(`Updated points for user ${userId}: Total=${newTotalPoints}, Round ${roundNumber}=${newRoundPoints}`);
             }
             
             // עדכון ההימור עם הנקודות החדשות
@@ -426,6 +470,12 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<void> =
       
       console.log(`Match ${match.uid} marked as calculated`);
     }
+    
+    // החזרת תוצאה שהחישוב הושלם בהצלחה
+    return {
+      hasIncompleteMatches: false,
+      incompleteMatches: []
+    };
     
   } catch (error) {
     console.error('Error calculating round points:', error);
@@ -497,3 +547,244 @@ export const calculatePreSeasonPoints = async (): Promise<void> => {
     throw error;
   }
 };
+
+// מחיקת נקודות ומשחקים של מחזור כשמוחקים אותו
+export const deleteRoundPoints = async (roundNumber: number): Promise<void> => {
+  console.log(`Starting to delete points and matches for round ${roundNumber}`);
+  
+  try {
+    const currentSeason = getCurrentSeason();
+    
+    // מחיקת כל המשחקים של המחזור
+    console.log(`Deleting matches for round ${roundNumber}`);
+    const matchesRef = collection(db, 'season', currentSeason, 'rounds', roundNumber.toString(), 'matches');
+    const matchesSnapshot = await getDocs(matchesRef);
+    
+    for (const matchDoc of matchesSnapshot.docs) {
+      await deleteDoc(matchDoc.ref);
+      console.log(`Deleted match ${matchDoc.id} from round ${roundNumber}`);
+    }
+    
+    console.log(`Deleted ${matchesSnapshot.docs.length} matches from round ${roundNumber}`);
+    
+    // קבלת כל המשתמשים
+    const playerBetsRef = collection(db, 'season', currentSeason, 'playerBets');
+    const playersSnapshot = await getDocs(playerBetsRef);
+    
+    console.log(`Found ${playersSnapshot.docs.length} players to update`);
+    
+    for (const playerDoc of playersSnapshot.docs) {
+      const playerData = playerDoc.data();
+      const userId = playerDoc.id;
+      
+      // קבלת ההימורים של המשתמש למחזור זה
+      const userRoundBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId, 'roundBetsCollection', roundNumber.toString());
+      const userRoundBetsDoc = await getDoc(userRoundBetsRef);
+      
+      if (userRoundBetsDoc.exists()) {
+        const userBets = userRoundBetsDoc.data().bets || [];
+        let totalPointsToSubtract = 0;
+        let correctPredictionsToSubtract = 0;
+        let exactPredictionsToSubtract = 0;
+        
+        // חישוב הנקודות שיש לחסר
+        for (const bet of userBets as Bet[]) {
+          if (bet.points) {
+            totalPointsToSubtract += bet.points;
+            if (bet.isExactResult) {
+              exactPredictionsToSubtract += 1;
+            } else if (bet.isCorrectDirection) {
+              correctPredictionsToSubtract += 1;
+            }
+          }
+        }
+        
+        if (totalPointsToSubtract > 0) {
+          console.log(`Subtracting ${totalPointsToSubtract} points from user ${userId} for round ${roundNumber}`);
+          
+          // עדכון הנקודות של המשתמש
+          const currentPlayerBets = await getPlayerBets(userId);
+          if (currentPlayerBets) {
+            const newTotalPoints = (currentPlayerBets.totalPoints || 0) - totalPointsToSubtract;
+            const newRoundPoints = { ...(currentPlayerBets.roundPoints || {}) };
+            delete newRoundPoints[roundNumber]; // מחיקת הנקודות של המחזור
+            
+            await updatePlayerPoints(userId, {
+              totalPoints: newTotalPoints,
+              roundPoints: newRoundPoints,
+              correctPredictions: (currentPlayerBets.correctPredictions || 0) - correctPredictionsToSubtract,
+              exactPredictions: (currentPlayerBets.exactPredictions || 0) - exactPredictionsToSubtract
+            });
+          }
+        }
+        
+        // מחיקת ההימורים של המחזור
+        await deleteDoc(userRoundBetsRef);
+        console.log(`Deleted round bets for user ${userId} in round ${roundNumber}`);
+      }
+    }
+    
+    console.log(`Successfully deleted points and matches for round ${roundNumber}`);
+  } catch (error) {
+    console.error('Error deleting round points and matches:', error);
+    throw error;
+  }
+};
+
+// חישוב מחדש של כל הנקודות של משתמש
+export const recalculatePlayerPoints = async (userId: string): Promise<void> => {
+  console.log(`Starting to recalculate points for user ${userId}`);
+  
+  try {
+    const currentSeason = getCurrentSeason();
+    
+    // קבלת כל המחזורים
+    const roundsRef = collection(db, 'season', currentSeason, 'rounds');
+    const roundsSnapshot = await getDocs(roundsRef);
+    
+    let totalPoints = 0;
+    let preSeasonPoints = 0;
+    let correctPredictions = 0;
+    let exactPredictions = 0;
+    const roundPoints: Record<number, number> = {};
+    
+    // חישוב נקודות מכל מחזור
+    for (const roundDoc of roundsSnapshot.docs) {
+      const roundNumber = parseInt(roundDoc.id);
+      const roundData = roundDoc.data();
+      
+      // קבלת ההימורים של המשתמש למחזור זה
+      const userRoundBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId, 'roundBetsCollection', roundNumber.toString());
+      const userRoundBetsDoc = await getDoc(userRoundBetsRef);
+      
+      if (userRoundBetsDoc.exists()) {
+        const userBets = userRoundBetsDoc.data().bets || [];
+        let roundTotalPoints = 0;
+        let roundCorrectPredictions = 0;
+        let roundExactPredictions = 0;
+        
+        // קבלת פרטי המשחקים של המחזור
+        const matchesRef = collection(db, 'season', currentSeason, 'rounds', roundNumber.toString(), 'matches');
+        const matchesSnapshot = await getDocs(matchesRef);
+        const matches = matchesSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as Match));
+        
+        for (const bet of userBets as Bet[]) {
+          const match = matches.find(m => m.uid === bet.matchId);
+          if (match && match.actualHomeScore !== undefined && match.actualAwayScore !== undefined) {
+            const actualResult = match.actualHomeScore > match.actualAwayScore ? 'home' : 
+                               match.actualHomeScore < match.actualAwayScore ? 'away' : 'draw';
+            const betResult = bet.homeScore > bet.awayScore ? 'home' : 
+                            bet.homeScore < bet.awayScore ? 'away' : 'draw';
+            
+            let matchPoints = 0;
+            let isExact = false;
+            let isCorrectDirection = false;
+            
+            // בדיקת תוצאה מדויקת
+            if (bet.homeScore === match.actualHomeScore && bet.awayScore === match.actualAwayScore) {
+              matchPoints += 3;
+              isExact = true;
+            }
+            // בדיקת כיוון נכון
+            else if (actualResult === betResult) {
+              matchPoints += 1;
+              isCorrectDirection = true;
+            }
+            
+            // בדיקת בונוס אם היחיד שצדק
+            if (isCorrectDirection || isExact) {
+              // קבלת כל ההימורים למשחק זה
+              const allBetsForMatch: { [uid: string]: { homeScore: number; awayScore: number } } = {};
+              const allPlayersSnapshot = await getDocs(collection(db, 'season', currentSeason, 'playerBets'));
+              
+              for (const playerDoc of allPlayersSnapshot.docs) {
+                const playerRoundBetsRef = doc(db, 'season', currentSeason, 'playerBets', playerDoc.id, 'roundBetsCollection', roundNumber.toString());
+                const playerRoundBetsDoc = await getDoc(playerRoundBetsRef);
+                
+                if (playerRoundBetsDoc.exists()) {
+                  const playerBets = playerRoundBetsDoc.data().bets || [];
+                  const playerBet = playerBets.find((b: Bet) => b.matchId === match.uid);
+                  if (playerBet) {
+                    allBetsForMatch[playerDoc.id] = {
+                      homeScore: playerBet.homeScore,
+                      awayScore: playerBet.awayScore
+                    };
+                  }
+                }
+              }
+              
+              const correctUsers = Object.keys(allBetsForMatch).filter(uid => {
+                const bet = allBetsForMatch[uid];
+                const betResult = bet.homeScore > bet.awayScore ? 'home' : 
+                                bet.homeScore < bet.awayScore ? 'away' : 'draw';
+                return actualResult === betResult;
+              });
+              
+              if (correctUsers.length === 1 && correctUsers[0] === userId) {
+                matchPoints *= 2; // בונוס כפול
+              }
+            }
+            
+            roundTotalPoints += matchPoints;
+            if (isExact) {
+              roundExactPredictions += 1;
+            } else if (isCorrectDirection) {
+              roundCorrectPredictions += 1;
+            }
+          }
+        }
+        
+        roundPoints[roundNumber] = roundTotalPoints;
+        totalPoints += roundTotalPoints;
+        correctPredictions += roundCorrectPredictions;
+        exactPredictions += roundExactPredictions;
+      }
+    }
+    
+    // חישוב נקודות הימורים מקדימים
+    const playerBets = await getPlayerBets(userId);
+    if (playerBets && playerBets.preSeasonBets) {
+      const seasonRef = doc(db, 'season', currentSeason);
+      const seasonDoc = await getDoc(seasonRef);
+      
+      if (seasonDoc.exists()) {
+        const seasonData = seasonDoc.data();
+        const preSeasonBets = playerBets.preSeasonBets;
+        
+        if (preSeasonBets.champion && seasonData.champion && preSeasonBets.champion === seasonData.champion) {
+          preSeasonPoints += 10;
+        }
+        if (preSeasonBets.relegation1 && seasonData.relegation1 && preSeasonBets.relegation1 === seasonData.relegation1) {
+          preSeasonPoints += 5;
+        }
+        if (preSeasonBets.relegation2 && seasonData.relegation2 && preSeasonBets.relegation2 === seasonData.relegation2) {
+          preSeasonPoints += 5;
+        }
+        if (preSeasonBets.topScorer && seasonData.topScorer && preSeasonBets.topScorer === seasonData.topScorer) {
+          preSeasonPoints += 7;
+        }
+        if (preSeasonBets.topAssists && seasonData.topAssists && preSeasonBets.topAssists === seasonData.topAssists) {
+          preSeasonPoints += 5;
+        }
+      }
+    }
+    
+    totalPoints += preSeasonPoints;
+    
+    // עדכון הנקודות של המשתמש
+    await updatePlayerPoints(userId, {
+      totalPoints,
+      preSeasonPoints,
+      roundPoints,
+      correctPredictions,
+      exactPredictions
+    });
+    
+    console.log(`Successfully recalculated points for user ${userId}: Total=${totalPoints}, PreSeason=${preSeasonPoints}`);
+  } catch (error) {
+    console.error('Error recalculating player points:', error);
+    throw error;
+  }
+};
+
+
