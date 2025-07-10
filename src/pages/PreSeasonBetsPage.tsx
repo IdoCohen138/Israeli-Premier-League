@@ -430,24 +430,18 @@ export default function PreSeasonBetsPage() {
                     <CardContent className="p-4">
                         <h3 className="font-semibold text-blue-900 mb-2">מידע חשוב</h3>
                         <ul className="text-sm text-blue-800 space-y-1">
-                            <li>• ההימורים המקדימים זמינים עד התאריך שנקבע בעונה</li>
-                            <li>• ניתן לשנות הימור עד לסגירת התקופה</li>
-                            <li>• לאחר סגירת התקופה לא ניתן לשנות או להוסיף הימורים</li>
+                            <li>• לאחר תחילת העונה לא ניתן לשנות או להוסיף הימורים</li>
                             <li>• נקודות יוענקו בסוף העונה</li>
-                            {seasonStartDate && (
-                                <li>• תאריך סגירה: {new Date(seasonStartDate).toLocaleDateString('he-IL')} {new Date(seasonStartDate).toLocaleTimeString('he-IL', {hour: '2-digit', minute:'2-digit'})}</li>
-                            )}
+                            <li>• משתתף שלא הימר לא יקבל נקודות</li>
                         </ul>
-                        
                         <div className="mt-4 pt-4 border-t border-blue-200">
                             <h4 className="font-semibold text-blue-900 mb-2">חלוקת נקודות להימורים מקדימים:</h4>
                             <ul className="text-sm text-blue-800 space-y-1">
                                 <li>• זהות אלופה: 10 נקודות</li>
-                                <li>• זהות יורדת ראשונה: 5 נקודות</li>
-                                <li>• זהות יורדת שנייה: 5 נקודות</li>
+                                <li>• זוכת גביע: 8 נקודות</li>
+                                <li>• זהות יורדת (ראשונה או שנייה): 5 נקודות לכל יורדת</li>
                                 <li>• מלך שערים: 7 נקודות</li>
                                 <li>• מלך בישולים: 5 נקודות</li>
-                                <li>• משתתף שלא הימר לא יקבל נקודות</li>
                             </ul>
                         </div>
                     </CardContent>

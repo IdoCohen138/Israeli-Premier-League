@@ -45,3 +45,59 @@ export async function getCurrentSeasonData() {
     return null;
   }
 } 
+
+import { doc, getDoc, getDocs, collection } from 'firebase/firestore';
+import { db } from './firebase';
+import { Round } from '../types';
+
+// פונקציה לחישוב המחזור הנוכחי לפי תאריכי startTime
+export const getCurrentRound = async (): Promise<number | null> => {
+  try {
+    const currentSeason = getCurrentSeason();
+    const seasonPath = getSeasonPath();
+    
+    // קבלת כל המחזורים
+    const roundsSnapshot = await getDocs(collection(db, seasonPath, 'rounds'));
+    
+    if (roundsSnapshot.empty) {
+      return null;
+    }
+    
+    const now = new Date();
+    let currentRound: number | null = null;
+    
+    // מיון המחזורים לפי מספר
+    const rounds = roundsSnapshot.docs
+      .map(doc => ({
+        number: parseInt(doc.id),
+        startTime: doc.data().startTime || ''
+      }))
+      .sort((a, b) => a.number - b.number);
+    
+    // מציאת המחזור הנוכחי
+    for (let i = 0; i < rounds.length; i++) {
+      const round = rounds[i];
+      const nextRound = rounds[i + 1];
+      
+      if (round.startTime) {
+        const roundStartTime = new Date(round.startTime);
+        
+        // אם זה המחזור האחרון או שהמחזור הבא עדיין לא הגיע
+        if (!nextRound || now < new Date(nextRound.startTime)) {
+          currentRound = round.number;
+          break;
+        }
+      }
+    }
+    
+    // אם לא מצאנו מחזור נוכחי, נחזיר את המחזור האחרון
+    if (!currentRound && rounds.length > 0) {
+      currentRound = rounds[rounds.length - 1].number;
+    }
+    
+    return currentRound;
+  } catch (error) {
+    console.error('Error getting current round:', error);
+    return null;
+  }
+}; 

@@ -4,6 +4,12 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '@/lib/firebase';
 import { User } from '@/types';
 
+// רשימת מנהלים מוגדרת מראש - הוסף כאן את ה-UID שלך
+const ADMIN_UIDS: string[] = [
+  // הוסף כאן את ה-UID שלך
+  // 'your-uid-here',
+];
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
@@ -29,18 +35,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const firebaseUser = result.user;
-      
-      // יצירת משתמש חדש או עדכון משתמש קיים
-      const newUser: User = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email || '',
-        role: 'user',
-        displayName: firebaseUser.displayName || undefined,
-        photoURL: firebaseUser.photoURL || undefined,
-      };
-      
-      await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
-      setUser(newUser);
+      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+      if (userDoc.exists()) {
+        const existingUser = userDoc.data() as User;
+        setUser(existingUser);
+      } else {
+        const shouldBeAdmin = ADMIN_UIDS.includes(firebaseUser.uid);
+        const newUser: User = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          role: shouldBeAdmin ? 'admin' : 'user',
+          displayName: firebaseUser.displayName || undefined,
+          photoURL: firebaseUser.photoURL || undefined,
+        };
+        
+        await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+        setUser(newUser);
+      }
     } catch (error) {
       console.error('Error signing in with Google:', error);
       throw error;
@@ -67,11 +78,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const userData = userDoc.data() as User;
             setUser(userData);
           } else {
+            // בדיקה אם המשתמש צריך להיות מנהל
+            const shouldBeAdmin = ADMIN_UIDS.includes(firebaseUser.uid);
+            
             // אם המשתמש לא קיים במסד הנתונים, ניצור אותו
             const newUser: User = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
-              role: 'user',
+              role: shouldBeAdmin ? 'admin' : 'user',
               displayName: firebaseUser.displayName || undefined,
               photoURL: firebaseUser.photoURL || undefined,
             };
@@ -81,11 +95,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } catch (error) {
           console.error('Error fetching user data:', error);
+          // בדיקה אם המשתמש צריך להיות מנהל
+          const shouldBeAdmin = ADMIN_UIDS.includes(firebaseUser.uid);
+          
           // אם יש שגיאה, נשתמש בנתונים הבסיסיים
           const basicUser: User = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
-            role: 'user',
+            role: shouldBeAdmin ? 'admin' : 'user',
             displayName: firebaseUser.displayName || undefined,
             photoURL: firebaseUser.photoURL || undefined,
           };

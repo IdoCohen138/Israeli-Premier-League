@@ -12,6 +12,7 @@ import {
     saveRoundBets, 
     getPlayerRoundBets
 } from "@/lib/playerBets";
+import { getCurrentRound } from "@/lib/season";
 import TeamLogo from "@/components/TeamLogo";
 
 export default function RoundBetsPage() {
@@ -30,11 +31,21 @@ export default function RoundBetsPage() {
     const [timeRemaining, setTimeRemaining] = useState<string>('');
     const [betSaved, setBetSaved] = useState<Record<string, boolean>>({});
     const [isRoundDataLoaded, setIsRoundDataLoaded] = useState(false);
+    const [currentRoundNumber, setCurrentRoundNumber] = useState<number | null>(null);
 
     useEffect(() => {
         setCurrentSeason(getCurrentSeason());
         loadData();
     }, []);
+
+    // טעינת המחזור הנוכחי אוטומטית
+    useEffect(() => {
+        if (rounds.length > 0 && !selectedRound) {
+            loadCurrentRound();
+        }
+    }, [rounds, selectedRound]);
+
+
 
     useEffect(() => {
         if (selectedRound) {
@@ -58,6 +69,24 @@ export default function RoundBetsPage() {
         
         return () => clearInterval(interval);
     }, [currentRound, isBettingAllowed]);
+
+    const loadCurrentRound = async () => {
+        try {
+            const currentRound = await getCurrentRound();
+            setCurrentRoundNumber(currentRound);
+            if (currentRound) {
+                setSelectedRound(currentRound);
+            } else if (rounds.length > 0) {
+                // אם אין מחזור נוכחי, נבחר את המחזור הראשון
+                setSelectedRound(rounds[0].number);
+            }
+        } catch (error) {
+            console.error('Error loading current round:', error);
+            if (rounds.length > 0) {
+                setSelectedRound(rounds[0].number);
+            }
+        }
+    };
 
     const loadData = async () => {
         try {
@@ -105,9 +134,8 @@ export default function RoundBetsPage() {
             const teamsData = teamsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() })) as Team[];
             setTeams(teamsData);
     
-            if (roundsData.length > 0) {
-                setSelectedRound(roundsData[0].number);
-            }
+            // טעינת המחזור הנוכחי
+            await loadCurrentRound();
         } catch (error) {
             console.error('Error loading data:', error);
             setError('שגיאה בטעינת הנתונים. אנא נסה שוב.');
@@ -339,27 +367,53 @@ export default function RoundBetsPage() {
                 {/* Round Selection */}
                 <Card className="bg-white rounded-xl shadow-sm">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Calendar className="h-5 w-5" />
-                            בחירת מחזור
-                        </CardTitle>
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="flex items-center gap-2">
+                                <Calendar className="h-5 w-5" />
+                                בחירת מחזור
+                            </CardTitle>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={loadCurrentRound}
+                                className="text-blue-600 hover:text-blue-700"
+                            >
+                                מחזור נוכחי
+                            </Button>
+                        </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="flex flex-wrap gap-2 justify-center">
-                            {rounds.map((round) => (
-                                <Button
-                                    key={round.number}
-                                    variant={selectedRound === round.number ? "default" : "outline"}
-                                    className={`transition-all duration-200 ${
-                                        selectedRound === round.number 
-                                            ? 'bg-orange-500 hover:bg-orange-600 border-orange-500' 
-                                            : 'hover:bg-orange-50 hover:border-orange-300'
-                                    }`}
-                                    onClick={() => setSelectedRound(round.number)}
-                                >
-                                    מחזור {round.number}
-                                </Button>
-                            ))}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                            {rounds.map((round) => {
+                                const isSelected = selectedRound === round.number;
+                                const isCurrentRound = currentRoundNumber === round.number;
+                                const hasStartTime = round.startTime && round.startTime !== '';
+                                
+                                return (
+                                    <Button
+                                        key={round.number}
+                                        variant={isSelected ? "default" : "outline"}
+                                        className={`transition-all duration-200 h-12 relative ${
+                                            isSelected 
+                                                ? 'bg-orange-500 hover:bg-orange-600 border-orange-500' 
+                                                : isCurrentRound
+                                                    ? 'bg-blue-50 hover:bg-blue-100 border-blue-300'
+                                                    : hasStartTime
+                                                        ? 'hover:bg-orange-50 hover:border-orange-300'
+                                                        : 'opacity-50 cursor-not-allowed'
+                                        }`}
+                                        onClick={() => hasStartTime && setSelectedRound(round.number)}
+                                        disabled={!hasStartTime}
+                                    >
+                                        <div className="text-center">
+                                            <div className="text-sm font-medium">מחזור {round.number}</div>
+                                            {isCurrentRound && (
+                                                <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
+                                            )}
+                                        </div>
+                                    </Button>
+                                );
+                            })}
                         </div>
                     </CardContent>
                 </Card>

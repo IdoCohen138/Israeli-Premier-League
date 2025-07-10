@@ -26,13 +26,14 @@ export default function AdminPage() {
         startTime: ''
     });
     const [editingResults, setEditingResults] = useState<number | null>(null);
-    const [seasonEndDate, setSeasonEndDate] = useState('');
+
     const [seasonResults, setSeasonResults] = useState({
         champion: '',
         relegation1: '',
         relegation2: '',
         topScorer: '',
-        topAssists: ''
+        topAssists: '',
+        cupWinner: ''
     });
     const [players, setPlayers] = useState<Player[]>([]);
     const [playerSearchTerm, setPlayerSearchTerm] = useState('');
@@ -396,11 +397,26 @@ export default function AdminPage() {
         }
     };
 
+    // פונקציה לבדיקה אם כל השדות מלאים
+        const isSeasonEndFormValid = () => {
+        return seasonResults.champion &&
+               seasonResults.relegation1 &&
+               seasonResults.relegation2 &&
+               seasonResults.topScorer &&
+               seasonResults.topAssists &&
+               seasonResults.cupWinner;
+    };
+
     const handleSaveSeasonEnd = async () => {
+        // בדיקה שכל השדות מלאים
+        if (!isSeasonEndFormValid()) {
+            alert('עליך למלא את כל הפרטים לפני שמירת תוצאות סוף העונה');
+            return;
+        }
+
         try {
             const seasonRef = doc(db, 'season', currentSeason);
             await updateDoc(seasonRef, {
-                seasonEnd: seasonEndDate,
                 ...seasonResults
             });
             
@@ -414,7 +430,7 @@ export default function AdminPage() {
             setPlayerSearchTerm('');
             setAssistSearchTerm('');
             
-            alert('תאריך סיום העונה והתוצאות נשמרו בהצלחה! הנקודות חושבו ועודכנו.');
+            alert('התוצאות נשמרו בהצלחה! הנקודות חושבו ועודכנו.');
         } catch (error) {
             console.error('Error saving season end:', error);
             alert('שגיאה בשמירת תוצאות סוף עונה. אנא נסה שוב.');
@@ -466,7 +482,6 @@ export default function AdminPage() {
                 : round
         ));
     };
-
 
 
     if (loading) {
@@ -789,7 +804,7 @@ export default function AdminPage() {
                 {activeTab === 'results' && (
                     <div className="space-y-4">
                         <div className="flex justify-between items-center">
-                            <h2 className="text-xl font-semibold">ניהול תוצאות</h2>
+                            <h2 className="text-xl font-semibold">תוצאות מחזורים</h2>
                             <Button 
                                 variant="outline" 
                                 onClick={loadData}
@@ -979,28 +994,21 @@ export default function AdminPage() {
                             <CardHeader>
                                 <CardTitle>הזנת תוצאות סוף עונה</CardTitle>
                             </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        תאריך ושעת סיום העונה
-                                    </label>
-                                    <input
-                                        type="datetime-local"
-                                        value={seasonEndDate}
-                                        onChange={(e) => setSeasonEndDate(e.target.value)}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                    />
-                                </div>
+                            <CardContent className="space-y-6">
+
                                 
+                                {/* תוצאות קבוצות */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    {/* אלופה */}
+                                    <div className={`p-4 rounded-lg border ${seasonResults.champion ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <Trophy size={16} className="inline mr-2" />
                                             אלופה
                                         </label>
                                         <select
                                             value={seasonResults.champion}
                                             onChange={(e) => setSeasonResults(prev => ({ ...prev, champion: e.target.value }))}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            className={`w-full px-3 py-2 border rounded-md ${seasonResults.champion ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                         >
                                             <option value="">בחר קבוצה</option>
                                             {teams.map(team => (
@@ -1009,16 +1017,53 @@ export default function AdminPage() {
                                                 </option>
                                             ))}
                                         </select>
+                                        {seasonResults.champion && (
+                                            <div className="mt-2 p-2 bg-green-100 rounded-md flex items-center gap-2">
+                                                <TeamLogo teamId={seasonResults.champion} size="sm" />
+                                                <span className="text-sm font-medium text-green-800">
+                                                    {teams.find(t => t.uid === seasonResults.champion)?.name}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                     
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            יורדת ראשונה
+                                    {/* זוכת גביע */}
+                                    <div className={`p-4 rounded-lg border ${seasonResults.cupWinner ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <Trophy size={16} className="inline mr-2" />
+                                            זוכת גביע
+                                        </label>
+                                        <select
+                                            value={seasonResults.cupWinner}
+                                            onChange={(e) => setSeasonResults(prev => ({ ...prev, cupWinner: e.target.value }))}
+                                            className={`w-full px-3 py-2 border rounded-md ${seasonResults.cupWinner ? 'border-green-300 bg-white' : 'border-gray-300'}`}
+                                        >
+                                            <option value="">בחר קבוצה</option>
+                                            {teams.map(team => (
+                                                <option key={team.uid} value={team.uid}>
+                                                    {team.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {seasonResults.cupWinner && (
+                                            <div className="mt-2 p-2 bg-green-100 rounded-md flex items-center gap-2">
+                                                <TeamLogo teamId={seasonResults.cupWinner} size="sm" />
+                                                <span className="text-sm font-medium text-green-800">
+                                                    {teams.find(t => t.uid === seasonResults.cupWinner)?.name}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    {/* יורדת ראשונה */}
+                                    <div className={`p-4 rounded-lg border ${seasonResults.relegation1 ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <span className="text-red-600">⬇</span> יורדת ראשונה
                                         </label>
                                         <select
                                             value={seasonResults.relegation1}
                                             onChange={(e) => setSeasonResults(prev => ({ ...prev, relegation1: e.target.value }))}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            className={`w-full px-3 py-2 border rounded-md ${seasonResults.relegation1 ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                         >
                                             <option value="">בחר קבוצה</option>
                                             {teams.map(team => (
@@ -1027,16 +1072,25 @@ export default function AdminPage() {
                                                 </option>
                                             ))}
                                         </select>
+                                        {seasonResults.relegation1 && (
+                                            <div className="mt-2 p-2 bg-green-100 rounded-md flex items-center gap-2">
+                                                <TeamLogo teamId={seasonResults.relegation1} size="sm" />
+                                                <span className="text-sm font-medium text-green-800">
+                                                    {teams.find(t => t.uid === seasonResults.relegation1)?.name}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                     
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            יורדת שנייה
+                                    {/* יורדת שנייה */}
+                                    <div className={`p-4 rounded-lg border ${seasonResults.relegation2 ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <span className="text-red-600">⬇</span> יורדת שנייה
                                         </label>
                                         <select
                                             value={seasonResults.relegation2}
                                             onChange={(e) => setSeasonResults(prev => ({ ...prev, relegation2: e.target.value }))}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            className={`w-full px-3 py-2 border rounded-md ${seasonResults.relegation2 ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                         >
                                             <option value="">בחר קבוצה</option>
                                             {teams.map(team => (
@@ -1045,10 +1099,23 @@ export default function AdminPage() {
                                                 </option>
                                             ))}
                                         </select>
+                                        {seasonResults.relegation2 && (
+                                            <div className="mt-2 p-2 bg-green-100 rounded-md flex items-center gap-2">
+                                                <TeamLogo teamId={seasonResults.relegation2} size="sm" />
+                                                <span className="text-sm font-medium text-green-800">
+                                                    {teams.find(t => t.uid === seasonResults.relegation2)?.name}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
-                                    
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                </div>
+                                
+                                {/* תוצאות שחקנים */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* מלך שערים */}
+                                    <div className={`p-4 rounded-lg border ${seasonResults.topScorer ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <Target size={16} className="inline mr-2" />
                                             מלך שערים
                                         </label>
                                         <div className="relative">
@@ -1056,7 +1123,7 @@ export default function AdminPage() {
                                                 type="text"
                                                 value={playerSearchTerm}
                                                 onChange={(e) => setPlayerSearchTerm(e.target.value)}
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                                className={`w-full px-3 py-2 border rounded-md ${seasonResults.topScorer ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                                 placeholder="חפש שחקן..."
                                             />
                                             {playerSearchTerm && (
@@ -1083,14 +1150,19 @@ export default function AdminPage() {
                                             )}
                                         </div>
                                         {seasonResults.topScorer && (
-                                            <p className="text-sm text-green-600 mt-1">
-                                                נבחר: {players.find(p => p.uid === seasonResults.topScorer)?.name}
-                                            </p>
+                                            <div className="mt-2 p-2 bg-green-100 rounded-md flex items-center gap-2">
+                                                <TeamLogo teamId={players.find(p => p.uid === seasonResults.topScorer)?.teamId || ''} size="sm" />
+                                                <span className="text-sm font-medium text-green-800">
+                                                    {players.find(p => p.uid === seasonResults.topScorer)?.name}
+                                                </span>
+                                            </div>
                                         )}
                                     </div>
                                     
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    {/* מלך בישולים */}
+                                    <div className={`p-4 rounded-lg border ${seasonResults.topAssists ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <Target size={16} className="inline mr-2" />
                                             מלך בישולים
                                         </label>
                                         <div className="relative">
@@ -1098,7 +1170,7 @@ export default function AdminPage() {
                                                 type="text"
                                                 value={assistSearchTerm}
                                                 onChange={(e) => setAssistSearchTerm(e.target.value)}
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                                className={`w-full px-3 py-2 border rounded-md ${seasonResults.topAssists ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                                 placeholder="חפש שחקן..."
                                             />
                                             {assistSearchTerm && (
@@ -1125,17 +1197,24 @@ export default function AdminPage() {
                                             )}
                                         </div>
                                         {seasonResults.topAssists && (
-                                            <p className="text-sm text-green-600 mt-1">
-                                                נבחר: {players.find(p => p.uid === seasonResults.topAssists)?.name}
-                                            </p>
+                                            <div className="mt-2 p-2 bg-green-100 rounded-md flex items-center gap-2">
+                                                <TeamLogo teamId={players.find(p => p.uid === seasonResults.topAssists)?.teamId || ''} size="sm" />
+                                                <span className="text-sm font-medium text-green-800">
+                                                    {players.find(p => p.uid === seasonResults.topAssists)?.name}
+                                                </span>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
                                 
+
+                                
+                                {/* כפתור שמירה */}
                                 <div className="flex justify-end">
                                     <Button
                                         onClick={handleSaveSeasonEnd}
-                                        className="flex items-center gap-2"
+                                        disabled={!isSeasonEndFormValid()}
+                                        className={`flex items-center gap-2 ${!isSeasonEndFormValid() ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
                                         <Trophy size={16} />
                                         שמור תוצאות סוף עונה

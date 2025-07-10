@@ -512,12 +512,19 @@ export const calculatePreSeasonPoints = async (): Promise<void> => {
         preSeasonPoints += 10; // אלופה
       }
       
-      if (preSeasonBets.relegation1 && seasonData.relegation1 && preSeasonBets.relegation1 === seasonData.relegation1) {
-        preSeasonPoints += 5; // יורדת ראשונה
+      if (preSeasonBets.cup && seasonData.cupWinner && preSeasonBets.cup === seasonData.cupWinner) {
+        preSeasonPoints += 8; // זוכת גביע
       }
       
-      if (preSeasonBets.relegation2 && seasonData.relegation2 && preSeasonBets.relegation2 === seasonData.relegation2) {
-        preSeasonPoints += 5; // יורדת שנייה
+      // חישוב נקודות ליורדות - אין חשיבות לסדר
+      const actualRelegatedTeams = [seasonData.relegation1, seasonData.relegation2].filter(Boolean);
+      const userRelegationBets = [preSeasonBets.relegation1, preSeasonBets.relegation2].filter(Boolean);
+      
+      // בדיקה אם המשתמש צדק ביורדות (בלי חשיבות לסדר)
+      for (const userBet of userRelegationBets) {
+        if (actualRelegatedTeams.includes(userBet)) {
+          preSeasonPoints += 5; // 5 נקודות לכל יורדת שצדק בה
+        }
       }
       
       if (preSeasonBets.topScorer && seasonData.topScorer && preSeasonBets.topScorer === seasonData.topScorer) {
@@ -750,12 +757,22 @@ export const recalculatePlayerPoints = async (userId: string): Promise<void> => 
         if (preSeasonBets.champion && seasonData.champion && preSeasonBets.champion === seasonData.champion) {
           preSeasonPoints += 10;
         }
-        if (preSeasonBets.relegation1 && seasonData.relegation1 && preSeasonBets.relegation1 === seasonData.relegation1) {
-          preSeasonPoints += 5;
+        
+        if (preSeasonBets.cup && seasonData.cupWinner && preSeasonBets.cup === seasonData.cupWinner) {
+          preSeasonPoints += 8; // זוכת גביע
         }
-        if (preSeasonBets.relegation2 && seasonData.relegation2 && preSeasonBets.relegation2 === seasonData.relegation2) {
-          preSeasonPoints += 5;
+        
+        // חישוב נקודות ליורדות - אין חשיבות לסדר
+        const actualRelegatedTeams = [seasonData.relegation1, seasonData.relegation2].filter(Boolean);
+        const userRelegationBets = [preSeasonBets.relegation1, preSeasonBets.relegation2].filter(Boolean);
+        
+        // בדיקה אם המשתמש צדק ביורדות (בלי חשיבות לסדר)
+        for (const userBet of userRelegationBets) {
+          if (actualRelegatedTeams.includes(userBet)) {
+            preSeasonPoints += 5; // 5 נקודות לכל יורדת שצדק בה
+          }
         }
+        
         if (preSeasonBets.topScorer && seasonData.topScorer && preSeasonBets.topScorer === seasonData.topScorer) {
           preSeasonPoints += 7;
         }

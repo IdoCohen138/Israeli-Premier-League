@@ -1,12 +1,63 @@
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Trophy, Target, Users, Settings, LogOut } from "lucide-react";
+import { getCurrentRound, getSeasonPath } from "@/lib/season";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function HomePage() {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const [currentRoundNumber, setCurrentRoundNumber] = useState<number | null>(null);
+    const [nextRoundTime, setNextRoundTime] = useState<string>('');
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        loadCurrentRound();
+    }, []);
+
+    const loadCurrentRound = async () => {
+        try {
+            const round = await getCurrentRound();
+            setCurrentRoundNumber(round);
+            
+            // טעינת זמן המחזור הבא
+            if (round) {
+                await loadNextRoundTime(round);
+            }
+        } catch (error) {
+            console.error('Error loading current round:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadNextRoundTime = async (currentRound: number) => {
+        try {
+            const seasonPath = getSeasonPath();
+            const roundsSnapshot = await getDocs(collection(db, seasonPath, 'rounds'));
+            
+            const rounds = roundsSnapshot.docs
+                .map(doc => ({
+                    number: parseInt(doc.id),
+                    startTime: doc.data().startTime || ''
+                }))
+                .sort((a, b) => a.number - b.number);
+            
+            const nextRound = rounds.find(r => r.number === currentRound + 1);
+            if (nextRound && nextRound.startTime) {
+                const nextRoundDate = new Date(nextRound.startTime);
+                setNextRoundTime(nextRoundDate.toLocaleString('he-IL'));
+            } else {
+                setNextRoundTime('');
+            }
+        } catch (error) {
+            console.error('Error loading next round time:', error);
+        }
+    };
 
     const handleLogout = async () => {
         await logout();
@@ -88,27 +139,26 @@ export default function HomePage() {
                 </div>
 
                 {/* Quick Stats */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Card className="bg-white rounded-xl shadow-sm">
                         <CardContent className="p-4 text-center space-y-2">
                             <p className="text-xs sm:text-sm text-gray-600">מחזור נוכחי</p>
-                            <p className="text-xl sm:text-2xl font-bold text-blue-600">1</p>
+                            <p className="text-xl sm:text-2xl font-bold text-blue-600">
+                                {loading ? '...' : (currentRoundNumber || 'אין')}
+                            </p>
                         </CardContent>
                     </Card>
-
-                    <Card className="bg-white rounded-xl shadow-sm">
-                        <CardContent className="p-4 text-center space-y-2">
-                            <p className="text-xs sm:text-sm text-gray-600">משחקים פעילים</p>
-                            <p className="text-xl sm:text-2xl font-bold text-green-600">0</p>
-                        </CardContent>
-                    </Card>
-
-                    <Card className="bg-white rounded-xl shadow-sm">
-                        <CardContent className="p-4 text-center space-y-2">
-                            <p className="text-xs sm:text-sm text-gray-600">משתמשים פעילים</p>
-                            <p className="text-xl sm:text-2xl font-bold text-purple-600">0</p>
-                        </CardContent>
-                    </Card>
+                    
+                    {nextRoundTime && (
+                        <Card className="bg-white rounded-xl shadow-sm">
+                            <CardContent className="p-4 text-center space-y-2">
+                                <p className="text-xs sm:text-sm text-gray-600">מחזור הבא מתחיל</p>
+                                <p className="text-sm font-semibold text-green-600">
+                                    {nextRoundTime}
+                                </p>
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
             </div>
         </div>
