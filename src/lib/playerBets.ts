@@ -695,7 +695,7 @@ export const recalculatePlayerPoints = async (userId: string): Promise<void> => 
             }
             
             // בדיקת בונוס אם היחיד שצדק
-            if (isCorrectDirection) {
+            if (isCorrectDirection || isExact) {
               // קבלת כל ההימורים למשחק זה
               const allBetsForMatch: { [uid: string]: { homeScore: number; awayScore: number } } = {};
               const allPlayersSnapshot = await getDocs(collection(db, 'season', currentSeason, 'playerBets'));
