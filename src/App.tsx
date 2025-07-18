@@ -6,6 +6,7 @@ import PreSeasonBetsPage from './pages/PreSeasonBetsPage';
 import RoundBetsPage from './pages/RoundBetsPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import AdminPage from './pages/AdminPage';
+import AllUsersBetsPage from './pages/AllUsersBetsPage';
 import './App.css';
 
 // Component to protect routes that require authentication
@@ -73,6 +74,14 @@ function AppRoutesContent() {
         element={
           <ProtectedRoute>
             <AdminPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/all-users-bets" 
+        element={
+          <ProtectedRoute>
+            <AllUsersBetsPage />
           </ProtectedRoute>
         } 
       />

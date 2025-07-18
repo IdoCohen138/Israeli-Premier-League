@@ -123,6 +123,18 @@ export default function HomePage() {
                         </CardContent>
                     </Card>
 
+                    {/* All Users Bets */}
+                    <Card className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer touch-target"
+                          onClick={() => navigate('/all-users-bets')}>
+                        <CardContent className="p-4 sm:p-6 text-center space-y-3">
+                            <Users className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-pink-500" />
+                            <h3 className="text-base sm:text-lg font-semibold text-gray-900">הימורי כל המשתמשים</h3>
+                            <p className="text-xs sm:text-sm text-gray-600">
+                                צפייה בהימורים של כל המשתמשים לכל מחזור
+                            </p>
+                        </CardContent>
+                    </Card>
+
                     {/* Admin Panel */}
                     {user?.role === 'admin' && (
                         <Card className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer touch-target"

@@ -208,18 +208,24 @@ export default function PreSeasonBetsPage() {
     // פונקציה לסינון נתונים לפי חיפוש
     const getFilteredData = (type: string) => {
         const searchTerm = searchTerms[type] || "";
-        
-        if (!searchTerm) {
-            return type === 'topScorer' || type === 'topAssists' ? players : teams;
+        let filteredTeams = teams;
+        if (type === 'cup') {
+            // Show all teams including 'אחר'
+            filteredTeams = teams;
+        } else if (['champion', 'relegation1', 'relegation2'].includes(type)) {
+            // Exclude 'אחר' from other team bets
+            filteredTeams = teams.filter(team => team.uid !== 'Q7TYlRWO48TYKm7IPZnj');
         }
-        
+        if (!searchTerm) {
+            return type === 'topScorer' || type === 'topAssists' ? players : filteredTeams;
+        }
         if (type === 'topScorer' || type === 'topAssists') {
             return players.filter(player => 
                 player.name.includes(searchTerm) || 
                 player.team.includes(searchTerm)
             );
         } else {
-            return teams.filter(team => 
+            return filteredTeams.filter(team => 
                 team.name.includes(searchTerm)
             );
         }

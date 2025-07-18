@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Plus, Edit, Trash2, Calendar, Clock, Users, Settings, Trophy, Target, X } from "lucide-react";
+import { ArrowRight, Plus, Edit, Trash2, Calendar, Clock, Users, Settings, Trophy, Target, X, TrendingDown } from "lucide-react";
 import { Match, Round, Team, User, Player } from "@/types";
 import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
 
@@ -1011,7 +1011,7 @@ export default function AdminPage() {
                                             className={`w-full px-3 py-2 border rounded-md ${seasonResults.champion ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                         >
                                             <option value="">בחר קבוצה</option>
-                                            {teams.map(team => (
+                                            {teams.filter((team: any) => team.uid !== 'Q7TYlRWO48TYKm7IPZnj').map((team: any) => (
                                                 <option key={team.uid} value={team.uid}>
                                                     {team.name}
                                                 </option>
@@ -1026,7 +1026,6 @@ export default function AdminPage() {
                                             </div>
                                         )}
                                     </div>
-                                    
                                     {/* זוכת גביע */}
                                     <div className={`p-4 rounded-lg border ${seasonResults.cupWinner ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1039,7 +1038,7 @@ export default function AdminPage() {
                                             className={`w-full px-3 py-2 border rounded-md ${seasonResults.cupWinner ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                         >
                                             <option value="">בחר קבוצה</option>
-                                            {teams.map(team => (
+                                            {teams.map((team: any) => (
                                                 <option key={team.uid} value={team.uid}>
                                                     {team.name}
                                                 </option>
@@ -1054,11 +1053,11 @@ export default function AdminPage() {
                                             </div>
                                         )}
                                     </div>
-                                    
                                     {/* יורדת ראשונה */}
                                     <div className={`p-4 rounded-lg border ${seasonResults.relegation1 ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            <span className="text-red-600">⬇</span> יורדת ראשונה
+                                            <TrendingDown size={16} className="inline mr-2" />
+                                            יורדת ראשונה
                                         </label>
                                         <select
                                             value={seasonResults.relegation1}
@@ -1066,7 +1065,7 @@ export default function AdminPage() {
                                             className={`w-full px-3 py-2 border rounded-md ${seasonResults.relegation1 ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                         >
                                             <option value="">בחר קבוצה</option>
-                                            {teams.map(team => (
+                                            {teams.filter((team: any) => team.uid !== 'Q7TYlRWO48TYKm7IPZnj').map((team: any) => (
                                                 <option key={team.uid} value={team.uid}>
                                                     {team.name}
                                                 </option>
@@ -1081,11 +1080,11 @@ export default function AdminPage() {
                                             </div>
                                         )}
                                     </div>
-                                    
                                     {/* יורדת שנייה */}
                                     <div className={`p-4 rounded-lg border ${seasonResults.relegation2 ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            <span className="text-red-600">⬇</span> יורדת שנייה
+                                            <TrendingDown size={16} className="inline mr-2" />
+                                            יורדת שנייה
                                         </label>
                                         <select
                                             value={seasonResults.relegation2}
@@ -1093,7 +1092,7 @@ export default function AdminPage() {
                                             className={`w-full px-3 py-2 border rounded-md ${seasonResults.relegation2 ? 'border-green-300 bg-white' : 'border-gray-300'}`}
                                         >
                                             <option value="">בחר קבוצה</option>
-                                            {teams.map(team => (
+                                            {teams.filter((team: any) => team.uid !== 'Q7TYlRWO48TYKm7IPZnj').map((team: any) => (
                                                 <option key={team.uid} value={team.uid}>
                                                     {team.name}
                                                 </option>
