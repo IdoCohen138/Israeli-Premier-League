@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Calendar, Clock } from "lucide-react";
+import { ArrowRight, Calendar, Clock, ChevronLeft, ChevronRight } from "lucide-react";
 import { Match, Round, Bet, Team } from "@/types";
 import { collection, doc, getDocs, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -18,8 +18,7 @@ import TeamLogo from "@/components/TeamLogo";
 export default function RoundBetsPage() {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [rounds, setRounds] = useState<Round[]>([]);
-    const [selectedRound, setSelectedRound] = useState<number | null>(null);
+    const [currentRoundNumber, setCurrentRoundNumber] = useState<number | null>(null);
     const [currentRound, setCurrentRound] = useState<Round | null>(null);
     const [teams, setTeams] = useState<Team[]>([]);
     const [bets, setBets] = useState<Bet[]>([]);
@@ -31,146 +30,71 @@ export default function RoundBetsPage() {
     const [timeRemaining, setTimeRemaining] = useState<string>('');
     const [betSaved, setBetSaved] = useState<Record<string, boolean>>({});
     const [isRoundDataLoaded, setIsRoundDataLoaded] = useState(false);
-    const [currentRoundNumber, setCurrentRoundNumber] = useState<number | null>(null);
+    const [maxRoundNumber, setMaxRoundNumber] = useState<number | null>(null);
+    const [minRoundNumber, setMinRoundNumber] = useState<number | null>(null);
 
     useEffect(() => {
         setCurrentSeason(getCurrentSeason());
-        loadData();
+        loadTeams();
+        loadInitialRound();
     }, []);
-
-    // טעינת המחזור הנוכחי אוטומטית
-    useEffect(() => {
-        if (rounds.length > 0 && !selectedRound) {
-            loadCurrentRound();
-        }
-    }, [rounds, selectedRound]);
-
-
-
-    useEffect(() => {
-        if (selectedRound) {
-            loadRoundData(selectedRound);
-        }
-    }, [selectedRound, user]);
 
     // Timer effect to update countdown
     useEffect(() => {
         if (!currentRound?.startTime || !isBettingAllowed) return;
-
         const updateTimer = () => {
             checkBettingStatus(currentRound);
         };
-
-        // Update immediately
         updateTimer();
-        
-        // Update every minute
         const interval = setInterval(updateTimer, 60000);
-        
         return () => clearInterval(interval);
     }, [currentRound, isBettingAllowed]);
 
-    const loadCurrentRound = async () => {
-        try {
-            const currentRound = await getCurrentRound();
-            setCurrentRoundNumber(currentRound);
-            if (currentRound) {
-                setSelectedRound(currentRound);
-            } else if (rounds.length > 0) {
-                // אם אין מחזור נוכחי, נבחר את המחזור הראשון
-                setSelectedRound(rounds[0].number);
-            }
-        } catch (error) {
-            console.error('Error loading current round:', error);
-            if (rounds.length > 0) {
-                setSelectedRound(rounds[0].number);
-            }
-        }
-    };
-
-    const loadData = async () => {
+    const loadTeams = async () => {
         try {
             const seasonPath = getSeasonPath();
-            const fullPath = `${seasonPath}/rounds`;
-            console.log(">>> טוען מחזורים מתוך הנתיב:", fullPath);
-            
-            const roundsSnapshot = await getDocs(collection(db, seasonPath, 'rounds'));
-            console.log(">>> כמות מסמכים ב-rounds:", roundsSnapshot.size);
-            
-    
-            if (roundsSnapshot.empty) {
-                setError('לא נמצאו מחזורים במסד הנתונים');
-                return;
-            }
-    
-            const roundsData: Round[] = [];
-    
-            for (const roundDoc of roundsSnapshot.docs) {
-                const roundId = roundDoc.id;
-                const roundData = roundDoc.data();
-    
-                // טוען את כל המשחקים מתוך הקולקשן matches של המחזור הזה
-                const matchesSnapshot = await getDocs(collection(db, seasonPath, 'rounds', roundId, 'matches'));
-    
-                const matches = matchesSnapshot.docs.map((doc) => ({
-                    uid: doc.id,
-                    ...doc.data(),
-                })) as Match[];
-    
-                const round: Round = {
-                    number: parseInt(roundId),
-                    matches: matches.map(m => m.uid),
-                    matchesDetails: matches,
-                    startTime: roundData.startTime || '',
-                    isActive: roundData.isActive || false,
-                };
-    
-                roundsData.push(round);
-            }
-    
-            setRounds(roundsData.sort((a, b) => a.number - b.number));
-    
             const teamsSnapshot = await getDocs(collection(db, seasonPath, 'teams'));
             const teamsData = teamsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() })) as Team[];
             setTeams(teamsData);
-    
-            // טעינת המחזור הנוכחי
-            await loadCurrentRound();
         } catch (error) {
-            console.error('Error loading data:', error);
-            setError('שגיאה בטעינת הנתונים. אנא נסה שוב.');
+            console.error('Error loading teams:', error);
+        }
+    };
+
+    const loadInitialRound = async () => {
+        setLoading(true);
+        try {
+            const roundNum = await getCurrentRound();
+            if (roundNum) {
+                setCurrentRoundNumber(roundNum);
+                await loadRoundData(roundNum, true);
+            } else {
+                setError('לא נמצא מחזור נוכחי');
+            }
+        } catch (error) {
+            setError('שגיאה בטעינת המחזור הנוכחי');
         } finally {
             setLoading(false);
         }
     };
 
-    const loadRoundData = async (roundNumber: number) => {
+    const loadRoundData = async (roundNumber: number, updateMinMax = false) => {
         if (!user) return;
-        
-        // איפוס מצב הטעינה
         setIsRoundDataLoaded(false);
         setHasExistingBets(false);
-        
         try {
             const seasonPath = getSeasonPath();
-            console.log('=== DEBUG: loadRoundData ===');
-            console.log('Loading round data for round:', roundNumber);
-            console.log('From path:', `${seasonPath}/rounds/${roundNumber}`);
-            
+            console.log(`[LOAD ROUND DATA] Fetching round ${roundNumber} info and matches...`);
             const roundDoc = await getDoc(doc(db, seasonPath, 'rounds', roundNumber.toString()));
-            console.log('Round document exists:', roundDoc.exists());
-            
             if (roundDoc.exists()) {
                 const data = roundDoc.data();
-                console.log('Round document data:', data);
-                
-                // טעינת משחקים מקולקשן matches של המחזור
+                console.log(`[LOAD ROUND DATA] Round ${roundNumber} data:`, data);
                 const matchesSnapshot = await getDocs(collection(db, seasonPath, 'rounds', roundNumber.toString(), 'matches'));
                 const matches = matchesSnapshot.docs.map((doc) => ({
                     uid: doc.id,
                     ...doc.data(),
                 })) as Match[];
-                
+                console.log(`[LOAD ROUND DATA] Loaded matches for round ${roundNumber}:`, matches.map(m => ({ uid: m.uid, homeTeamId: m.homeTeamId, awayTeamId: m.awayTeamId })));
                 const roundData: Round = {
                     number: roundNumber,
                     matches: matches.map(m => m.uid),
@@ -178,31 +102,35 @@ export default function RoundBetsPage() {
                     startTime: data.startTime || '',
                     isActive: data.isActive || false
                 };
-                
-                console.log('Processed round data:', roundData);
                 setCurrentRound(roundData);
-                
-                // בדיקת סטטוס ההימורים
                 checkBettingStatus(roundData);
-
-                // טעינת הימורים קיימים
-                console.log('Loading bets for user:', user.uid, 'round:', roundNumber);
+                setCurrentRoundNumber(roundNumber);
+                console.log(`[LOAD ROUND DATA] Fetching bets for user ${user.uid} and round ${roundNumber}...`);
                 const existingBets = await getPlayerRoundBets(user.uid, roundNumber);
                 if (existingBets) {
                     setBets(existingBets);
                     setHasExistingBets(true);
-                    console.log('Loaded bets for round:', existingBets);
+                    console.log(`[LOAD ROUND DATA] Loaded bets for round ${roundNumber}:`, existingBets);
                 } else {
                     setBets([]);
                     setHasExistingBets(false);
+                    console.log(`[LOAD ROUND DATA] No bets found for round ${roundNumber}`);
                 }
-                
-                // סימון שהנתונים נטענו
                 setIsRoundDataLoaded(true);
+                // Update min/max round numbers if needed
+                if (updateMinMax) {
+                    // Find min/max round numbers in the DB
+                    const roundsSnapshot = await getDocs(collection(db, seasonPath, 'rounds'));
+                    if (!roundsSnapshot.empty) {
+                        const roundNumbers = roundsSnapshot.docs.map(doc => parseInt(doc.id)).sort((a, b) => a - b);
+                        setMinRoundNumber(roundNumbers[0]);
+                        setMaxRoundNumber(roundNumbers[roundNumbers.length - 1]);
+                    }
+                }
             } else {
-                console.log('Round document does not exist!');
                 setCurrentRound(null);
                 setIsRoundDataLoaded(true);
+                setError('המחזור לא קיים');
             }
         } catch (error) {
             console.error('Error loading round data:', error);
@@ -211,8 +139,19 @@ export default function RoundBetsPage() {
         }
     };
 
+    const handlePrevRound = () => {
+        if (currentRoundNumber && minRoundNumber && currentRoundNumber > minRoundNumber) {
+            loadRoundData(currentRoundNumber - 1);
+        }
+    };
+    const handleNextRound = () => {
+        if (currentRoundNumber && maxRoundNumber && currentRoundNumber < maxRoundNumber) {
+            loadRoundData(currentRoundNumber + 1);
+        }
+    };
+
     const handleBet = async (matchId: string, homeScore: number, awayScore: number) => {
-        if (!user || !selectedRound) return;
+        if (!user || !currentRoundNumber) return;
         
         if (!isBettingAllowed) {
             setError('תקופת ההימורים למחזור זה הסתיימה. לא ניתן לשנות הימורים יותר.');
@@ -223,7 +162,7 @@ export default function RoundBetsPage() {
             const newBet: Bet = {
                 userId: user.uid,
                 matchId,
-                round: selectedRound,
+                round: currentRoundNumber,
                 homeScore,
                 awayScore,
             };
@@ -232,7 +171,7 @@ export default function RoundBetsPage() {
             const updatedBets = bets.filter(bet => bet.matchId !== matchId);
             updatedBets.push(newBet);
 
-            await saveRoundBets(user.uid, selectedRound, updatedBets, user.displayName || user.email);
+            await saveRoundBets(user.uid, currentRoundNumber, updatedBets, user.displayName || user.email);
             
             // עדכון המצב המקומי
             setBets(updatedBets);
@@ -370,51 +309,30 @@ export default function RoundBetsPage() {
                         <div className="flex items-center justify-between">
                             <CardTitle className="flex items-center gap-2">
                                 <Calendar className="h-5 w-5" />
-                                בחירת מחזור
+                                מחזור {currentRoundNumber}
                             </CardTitle>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={loadCurrentRound}
-                                className="text-blue-600 hover:text-blue-700"
-                            >
-                                מחזור נוכחי
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    onClick={handlePrevRound}
+                                    disabled={!minRoundNumber || currentRoundNumber === minRoundNumber}
+                                    className="text-blue-600 hover:text-blue-700"
+                                >
+                                    <ChevronLeft size={16} />
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={handleNextRound}
+                                    disabled={!maxRoundNumber || currentRoundNumber === maxRoundNumber}
+                                    className="text-blue-600 hover:text-blue-700"
+                                >
+                                    <ChevronRight size={16} />
+                                </Button>
+                            </div>
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                            {rounds.map((round) => {
-                                const isSelected = selectedRound === round.number;
-                                const isCurrentRound = currentRoundNumber === round.number;
-                                const hasStartTime = round.startTime && round.startTime !== '';
-                                
-                                return (
-                                    <Button
-                                        key={round.number}
-                                        variant={isSelected ? "default" : "outline"}
-                                        className={`transition-all duration-200 h-12 relative ${
-                                            isSelected 
-                                                ? 'bg-orange-500 hover:bg-orange-600 border-orange-500' 
-                                                : isCurrentRound
-                                                    ? 'bg-blue-50 hover:bg-blue-100 border-blue-300'
-                                                    : hasStartTime
-                                                        ? 'hover:bg-orange-50 hover:border-orange-300'
-                                                        : 'opacity-50 cursor-not-allowed'
-                                        }`}
-                                        onClick={() => hasStartTime && setSelectedRound(round.number)}
-                                        disabled={!hasStartTime}
-                                    >
-                                        <div className="text-center">
-                                            <div className="text-sm font-medium">מחזור {round.number}</div>
-                                            {isCurrentRound && (
-                                                <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
-                                            )}
-                                        </div>
-                                    </Button>
-                                );
-                            })}
-                        </div>
+                        {/* Remove the grid of round buttons, just show matches for the current round below */}
                     </CardContent>
                 </Card>
 
