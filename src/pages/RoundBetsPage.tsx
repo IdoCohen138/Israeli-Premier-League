@@ -448,9 +448,21 @@ export default function RoundBetsPage() {
                                                     max="20"
                                                     data-match={`${match.uid}-home`}
                                                     className="w-16 h-12 text-center border rounded-lg"
-                                                    placeholder="0"
-                                                    defaultValue={getBetForMatch(match.uid)?.homeScore || ''}
+                                                    placeholder="?"
+                                                    defaultValue={getBetForMatch(match.uid)?.homeScore !== undefined ? getBetForMatch(match.uid)?.homeScore : ''}
                                                     disabled={!isBettingAllowed}
+                                                    onChange={e => {
+                                                        const homeValue = e.target.value;
+                                                        const awayInput = document.querySelector(`input[data-match='${match.uid}-away']`) as HTMLInputElement;
+                                                        const awayValue = awayInput?.value;
+                                                        if (
+                                                            homeValue !== '' && awayValue !== '' &&
+                                                            !isNaN(Number(homeValue)) && !isNaN(Number(awayValue)) &&
+                                                            homeValue !== '?' && awayValue !== '?'
+                                                        ) {
+                                                            handleBet(match.uid, Number(homeValue), Number(awayValue));
+                                                        }
+                                                    }}
                                                 />
                                             </div>
                                             <span className="text-lg font-semibold">-</span>
@@ -461,30 +473,36 @@ export default function RoundBetsPage() {
                                                     max="20"
                                                     data-match={`${match.uid}-away`}
                                                     className="w-16 h-12 text-center border rounded-lg"
-                                                    placeholder="0"
-                                                    defaultValue={getBetForMatch(match.uid)?.awayScore || ''}
+                                                    placeholder="?"
+                                                    defaultValue={getBetForMatch(match.uid)?.awayScore !== undefined ? getBetForMatch(match.uid)?.awayScore : ''}
                                                     disabled={!isBettingAllowed}
+                                                    onChange={e => {
+                                                        const awayValue = e.target.value;
+                                                        const homeInput = document.querySelector(`input[data-match='${match.uid}-home']`) as HTMLInputElement;
+                                                        const homeValue = homeInput?.value;
+                                                        if (homeValue !== '' && awayValue !== '' && !isNaN(Number(homeValue)) && !isNaN(Number(awayValue))) {
+                                                            handleBet(match.uid, Number(homeValue), Number(awayValue));
+                                                        }
+                                                    }}
                                                 />
                                             </div>
                                         </div>
-                                        
-                                        <div className="flex justify-center mt-4">
-                                            <Button
-                                                onClick={() => {
-                                                    const homeInput = document.querySelector(`input[data-match="${match.uid}-home"]`) as HTMLInputElement;
-                                                    const awayInput = document.querySelector(`input[data-match="${match.uid}-away"]`) as HTMLInputElement;
-                                                    const homeScore = parseInt(homeInput?.value || '0');
-                                                    const awayScore = parseInt(awayInput?.value || '0');
-                                                    handleBet(match.uid, homeScore, awayScore);
-                                                }}
-                                                className={`transition-all duration-200 px-6 py-2 rounded-lg font-bold text-white
-                                                    ${betSaved[match.uid] ? 'bg-green-400 hover:bg-green-500' : 'bg-orange-400 hover:bg-orange-500'}
-                                                    shadow-md focus:outline-none focus:ring-2 focus:ring-orange-300`}
-                                                disabled={!isBettingAllowed}
-                                            >
-                                                {betSaved[match.uid] ? 'הימור נשמר!' : 'שמור הימור'}
-                                            </Button>
-                                        </div>
+                                        {/* הערה באדום אם לא הוזנו שני ערכים חוקיים */}
+                                        {isBettingAllowed && !getBetForMatch(match.uid) && (() => {
+                                            const homeInput = typeof window !== 'undefined' ? document.querySelector(`input[data-match='${match.uid}-home']`) as HTMLInputElement : null;
+                                            const awayInput = typeof window !== 'undefined' ? document.querySelector(`input[data-match='${match.uid}-away']`) as HTMLInputElement : null;
+                                            const homeValue = homeInput?.value;
+                                            const awayValue = awayInput?.value;
+                                            const isValid = homeValue !== '' && awayValue !== '' && homeValue !== '?' && awayValue !== '?' && !isNaN(Number(homeValue)) && !isNaN(Number(awayValue));
+                                            if (!isValid) {
+                                                return (
+                                                    <div className="text-xs text-red-500 mt-2 text-center">
+                                                        יש להזין תוצאה לשתי הקבוצות כדי לשמור הימור
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                     </div>
                                 </CardContent>
                             </Card>

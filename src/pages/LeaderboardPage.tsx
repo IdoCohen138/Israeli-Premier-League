@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, Trophy, Medal, Award, TrendingUp, Users } from "lucide-react";
 import { PlayerBets } from "@/types";
 import { getLeaderboard } from "@/lib/playerBets";
-import { getCurrentSeason } from "@/lib/season";
+import { getCurrentSeason, getCurrentSeasonData } from "@/lib/season";
 
 export default function LeaderboardPage() {
     const { user } = useAuth();
@@ -16,10 +16,12 @@ export default function LeaderboardPage() {
     const [error, setError] = useState<string | null>(null);
     const [userRank, setUserRank] = useState<number | null>(null);
     const [currentSeason, setCurrentSeason] = useState<string>('');
+    const [showPreSeasonColumn, setShowPreSeasonColumn] = useState(false);
 
     useEffect(() => {
         setCurrentSeason(getCurrentSeason());
         loadLeaderboard();
+        checkPreSeasonPointsCalculated();
     }, []);
 
     const loadLeaderboard = async () => {
@@ -41,6 +43,23 @@ export default function LeaderboardPage() {
             setError('שגיאה בטעינת טבלת המיקומים. אנא נסה שוב.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const checkPreSeasonPointsCalculated = async () => {
+        const seasonData = await getCurrentSeasonData();
+        if (
+            seasonData &&
+            seasonData.champion &&
+            seasonData.cupWinner &&
+            seasonData.topScorer &&
+            seasonData.topAssists &&
+            seasonData.relegation1 &&
+            seasonData.relegation2
+        ) {
+            setShowPreSeasonColumn(true);
+        } else {
+            setShowPreSeasonColumn(false);
         }
     };
 
@@ -193,9 +212,10 @@ export default function LeaderboardPage() {
                                         <th className="text-right py-3 px-4 font-semibold">מיקום</th>
                                         <th className="text-right py-3 px-4 font-semibold">שחקן</th>
                                         <th className="text-right py-3 px-4 font-semibold">סה"כ נקודות</th>
-                                        <th className="text-right py-3 px-4 font-semibold">הימורים מקדימים</th>
-                                        <th className="text-right py-3 px-4 font-semibold">הימורי מחזורים</th>
-                                        <th className="text-right py-3 px-4 font-semibold">נקודות לפי מחזור</th>
+                                        {showPreSeasonColumn && (
+                                            <th className="text-right py-3 px-4 font-semibold">הימורים מקדימים</th>
+                                        )}
+                                        <th className="text-right py-3 px-4 font-semibold">ניקוד מחזור נוכחי</th>
                                         <th className="text-right py-3 px-4 font-semibold">תחזיות נכונות</th>
                                         <th className="text-right py-3 px-4 font-semibold">תחזיות מדויקות</th>
                                     </tr>
@@ -219,32 +239,25 @@ export default function LeaderboardPage() {
                                             <td className="py-3 px-4">
                                                 <span className="font-bold text-lg">{entry.totalPoints || 0}</span>
                                             </td>
-                                            <td className="py-3 px-4">
-                                                <span className="text-green-600 font-medium">
-                                                    {entry.preSeasonPoints || 0}
-                                                </span>
-                                                {entry.preSeasonPoints > 0 && (
-                                                    <div className="text-xs text-green-500 mt-1">✓ הימורים מקדימים</div>
-                                                )}
-                                            </td>
+                                            {showPreSeasonColumn && (
+                                                <td className="py-3 px-4">
+                                                    <span className="text-green-600 font-medium">
+                                                        {entry.preSeasonPoints || 0}
+                                                    </span>
+                                                    {entry.preSeasonPoints > 0 && (
+                                                        <div className="text-xs text-green-500 mt-1">✓ הימורים מקדימים</div>
+                                                    )}
+                                                </td>
+                                            )}
                                             <td className="py-3 px-4">
                                                 <span className="text-blue-600 font-medium">
-                                                    {Object.values(entry.roundPoints || {}).reduce((sum, points) => sum + points, 0)}
+                                                    {(() => {
+                                                        const roundNumbers = Object.keys(entry.roundPoints || {}).map(Number);
+                                                        if (roundNumbers.length === 0) return 0;
+                                                        const maxRound = Math.max(...roundNumbers);
+                                                        return entry.roundPoints?.[maxRound] ?? 0;
+                                                    })()}
                                                 </span>
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                <div className="text-xs text-gray-600">
-                                                    {Object.entries(entry.roundPoints || {}).length > 0 ? (
-                                                        Object.entries(entry.roundPoints || {}).map(([round, points]) => (
-                                                            <div key={round} className="flex justify-between items-center">
-                                                                <span>מחזור {round}:</span>
-                                                                <span className="font-medium text-blue-600">{points} נק'</span>
-                                                            </div>
-                                                        ))
-                                                    ) : (
-                                                        <span className="text-gray-400">אין עדיין</span>
-                                                    )}
-                                                </div>
                                             </td>
                                             <td className="py-3 px-4">
                                                 <span className="text-gray-600">{entry.correctPredictions || 0}</span>
@@ -265,13 +278,57 @@ export default function LeaderboardPage() {
                     <CardContent className="p-4">
                         <h3 className="font-semibold text-green-900 mb-2">איך מחושבות הנקודות?</h3>
                         <ul className="text-sm text-green-800 space-y-1">
-                            <li>• הימורים מקדימים: 10-50 נקודות בהתאם לסוג ההימור</li>
+                            <li>• הימורים מקדימים: יחושב בסוף העונה ונקודות יתווספו אוטמטית לטבלה</li>
                             <li>• הימורי מחזור: 1 נקודה לכיוון נכון, 3 נקודות לתוצאה מדויקת</li>
                             <li>• בונוס כפול אם רק אתה צדקת במשחק</li>
-                            <li>• הטבלה מתעדכנת בסוף כל מחזור</li>
+                            <li>• הטבלה מתעדכנת בסוף כל מחזור ובסוף העונה</li>
                         </ul>
                     </CardContent>
                 </Card>
+
+                {/* 2. הוסף טבלת נקודות לפי מחזור למטה */}
+                {leaderboard.length > 0 && (
+                    <Card className="bg-white rounded-xl shadow-sm mt-8">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <TrendingUp className="h-5 w-5" />
+                                נקודות לפי מחזור
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead>
+                                        <tr className="border-b">
+                                            <th className="text-right py-3 px-4 font-semibold">מחזור</th>
+                                            {leaderboard.map(entry => (
+                                                <th key={entry.uid} className="text-right py-3 px-4 font-semibold">{entry.displayName || 'שחקן אנונימי'}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(() => {
+                                            // מצא את כל המחזורים שהופיעו אצל כל המשתמשים
+                                            const allRounds = leaderboard.flatMap(entry => Object.keys(entry.roundPoints || {}).map(Number));
+                                            const maxRound = allRounds.length > 0 ? Math.max(...allRounds) : 0;
+                                            return Array.from({ length: maxRound }, (_, i) => i + 1).map((round) => (
+                                                <tr key={round} className={round % 2 === 0 ? 'bg-blue-50' : 'bg-white'}>
+                                                    <td className="py-3 px-4 font-bold text-blue-900">מחזור {round}</td>
+                                                    {leaderboard.map(entry => (
+                                                        <td key={entry.uid} className="py-3 px-4 text-center font-medium text-blue-700">
+                                                            {(entry.roundPoints && entry.roundPoints[round]) !== undefined ? entry.roundPoints[round] : 0}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            ));
+                                        })()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
             </div>
         </div>
     );

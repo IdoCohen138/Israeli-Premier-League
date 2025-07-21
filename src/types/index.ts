@@ -108,6 +108,8 @@ export interface PlayerBets {
   roundPoints: Record<number, number>; // map של מחזור -> נקודות (למשל: {1: 5, 2: 3})
   correctPredictions: number;
   exactPredictions: number;
+  correctPredictionsMap?: Record<number, number>; // map של מחזור -> כמות ניחושי כיוון נכונים
+  exactPredictionsMap?: Record<number, number>; // map של מחזור -> כמות ניחושי תוצאה מדויקת
 }
 
 export interface LeaderboardEntry {
@@ -119,4 +121,6 @@ export interface LeaderboardEntry {
   roundPoints: Record<number, number>; // map של מחזור -> נקודות
   correctPredictions: number;
   exactPredictions: number;
+  correctPredictionsMap?: Record<number, number>; // map של מחזור -> כמות ניחושי כיוון נכונים
+  exactPredictionsMap?: Record<number, number>; // map של מחזור -> כמות ניחושי תוצאה מדויקת
 } 

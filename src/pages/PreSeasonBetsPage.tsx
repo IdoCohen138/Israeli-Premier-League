@@ -320,7 +320,7 @@ export default function PreSeasonBetsPage() {
                 )}
 
                 {/* Existing Bets Warning */}
-                {hasExistingBets && (
+                {hasExistingBets && isBettingAllowed && (
                     <Card className="bg-yellow-50 border-yellow-200">
                         <CardContent className="p-4">
                             <h3 className="font-semibold text-yellow-900 mb-2">הימורים קיימים</h3>

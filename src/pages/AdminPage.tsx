@@ -5,7 +5,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Plus, Edit, Trash2, Calendar, Clock, Users, Settings, Trophy, Target, X, TrendingDown } from "lucide-react";
 import { Match, Round, Team, User, Player } from "@/types";
-import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc, writeBatch, getDoc, deleteField } from "firebase/firestore";
+import { Timestamp } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
 import { getCurrentSeason } from "@/lib/season";
@@ -45,6 +46,12 @@ export default function AdminPage() {
     const [newMatches, setNewMatches] = useState<Omit<Match, 'uid' | 'round'>[]>([]);
     const [editingMatches, setEditingMatches] = useState<number | null>(null);
 
+    // 1. סטייט חיווי חישוב נקודות
+    const [isCalculatingPoints, setIsCalculatingPoints] = useState(false);
+
+    // סטייט לשעת סגירת הימורים מקדימים
+    const [seasonStart, setSeasonStart] = useState<string>("");
+
     useEffect(() => {
         if (user?.role !== 'admin') {
             navigate('/');
@@ -53,6 +60,41 @@ export default function AdminPage() {
         setCurrentSeason(getCurrentSeason());
         loadData();
     }, [user, navigate]);
+
+    // שליפת ערכי סוף עונה מה-DB כאשר נכנסים לטאב סיום עונה
+    useEffect(() => {
+        if (activeTab === 'season' && currentSeason) {
+            const fetchSeasonResults = async () => {
+                const seasonRef = doc(db, 'season', currentSeason);
+                const seasonSnap = await getDoc(seasonRef);
+                if (seasonSnap.exists()) {
+                    const data = seasonSnap.data();
+                    setSeasonResults({
+                        champion: data.champion || '',
+                        cupWinner: data.cupWinner || '',
+                        relegation1: data.relegation1 || '',
+                        relegation2: data.relegation2 || '',
+                        topScorer: data.topScorer || '',
+                        topAssists: data.topAssists || ''
+                    });
+                    // עיבוד seasonStart
+                    let start = '';
+                    if (data.seasonStart) {
+                        if (typeof data.seasonStart === 'string') {
+                            start = data.seasonStart.slice(0, 16); // YYYY-MM-DDTHH:mm
+                        } else if (data.seasonStart.toDate) {
+                            // Firestore Timestamp
+                            const d = data.seasonStart.toDate();
+                            start = d.toISOString().slice(0, 16);
+                        }
+                    }
+                    setSeasonStart(start);
+                }
+            };
+            fetchSeasonResults();
+        }
+        // eslint-disable-next-line
+    }, [activeTab, currentSeason]);
 
     const loadData = async () => {
         try {
@@ -175,8 +217,8 @@ export default function AdminPage() {
             homeTeamId: '',
             awayTeam: '',
             awayTeamId: '',
-            date: new Date().toISOString().split('T')[0],
-            startTime: '20:00',
+            date: '', // חובה לפי הטיפוס, אך לא מוצג למשתמש
+            startTime: '', // חובה לפי הטיפוס, אך לא מוצג למשתמש
         };
         setNewMatches(prev => [...prev, newMatch]);
     };
@@ -354,30 +396,48 @@ export default function AdminPage() {
         setEditingResults(roundNumber);
     };
 
+    // 3. עדכון handleSaveResults
     const handleSaveResults = async (roundNumber: number) => {
+        if (isCalculatingPoints) return;
+        setIsCalculatingPoints(true);
         try {
             const round = rounds.find(r => r.number === roundNumber);
             
             if (round && round.matchesDetails) {
-                // שמירת התוצאות לכל משחק בקולקשן של המחזור
+                // בדוק אם יש משחקים ללא תוצאה
+                const incompleteMatches = round.matchesDetails.filter(
+                    m => !m.isCancelled && (m.actualHomeScore === undefined || m.actualHomeScore === null || m.actualAwayScore === undefined || m.actualAwayScore === null)
+                );
+                if (incompleteMatches.length > 0) {
+                    const msg = 'יש משחקים ללא תוצאה:\n' + incompleteMatches.map(m => `${m.homeTeam} - ${m.awayTeam}`).join('\n') + '\n\nהאם להמשיך ולחשב נקודות?';
+                    if (!window.confirm(msg)) {
+                        setIsCalculatingPoints(false);
+                        return;
+                    }
+                }
+                // שמירת התוצאות לכל משחק בקולקשן של המחזור (רק לא מבוטלים)
                 for (const match of round.matchesDetails) {
-                    if (match.actualHomeScore !== undefined && match.actualAwayScore !== undefined) {
-                        const matchRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString(), 'matches', match.uid);
+                    const matchRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString(), 'matches', match.uid);
+                    if (match.isCancelled) {
+                        // ודא שב-DB המשחק מסומן כמבוטל
+                        await updateDoc(matchRef, { isCancelled: true, actualHomeScore: null, actualAwayScore: null });
+                    } else if (match.actualHomeScore !== undefined && match.actualHomeScore !== null && match.actualAwayScore !== undefined && match.actualAwayScore !== null) {
                         await updateDoc(matchRef, {
                             actualHomeScore: match.actualHomeScore,
-                            actualAwayScore: match.actualAwayScore
+                            actualAwayScore: match.actualAwayScore,
+                            isCancelled: deleteField()
                         });
                     }
                 }
                 
-                // חישוב נקודות
+                // חישוב נקודות (רק למשחקים לא מבוטלים)
                 console.log('About to calculate round points...');
                 const calculationResult = await calculateRoundPoints(roundNumber);
                 
                 if (calculationResult.hasIncompleteMatches) {
                     const confirmMessage = `יש משחקים ללא תוצאות:\n${calculationResult.incompleteMatches.join('\n')}\n\nהאם אתה בטוח שברצונך להמשיך?`;
                     if (!confirm(confirmMessage)) {
-                        console.log('Points calculation cancelled by admin');
+                        setIsCalculatingPoints(false);
                         return;
                     }
                 }
@@ -392,8 +452,10 @@ export default function AdminPage() {
                 alert('התוצאות נשמרו והנקודות חושבו בהצלחה!');
             }
         } catch (error) {
-            console.error('Error saving results:', error);
+            console.error(error);
             alert('שגיאה בשמירת התוצאות. אנא נסה שוב.');
+        } finally {
+            setIsCalculatingPoints(false);
         }
     };
 
@@ -454,8 +516,8 @@ export default function AdminPage() {
                     homeTeamId: match.homeTeamId,
                     awayTeam: match.awayTeam,
                     awayTeamId: match.awayTeamId,
-                    date: match.date,
-                    startTime: match.startTime
+                    // date: match.date, // הוסר
+                    // startTime: match.startTime, // הוסר
                 });
             }
 
@@ -483,6 +545,129 @@ export default function AdminPage() {
         ));
     };
 
+    // 2. ביטול משחק (isCancelled)
+    const handleCancelMatch = (roundNumber: number, matchId: string) => {
+        if (!window.confirm('האם אתה בטוח שברצונך לבטל משחק זה? לא יחושבו נקודות עבורו.')) return;
+        setRounds(prev => prev.map(round =>
+            round.number === roundNumber
+                ? {
+                    ...round,
+                    matchesDetails: (round.matchesDetails || []).map(match =>
+                        match.uid === matchId
+                            ? { ...match, isCancelled: true, actualHomeScore: null, actualAwayScore: null }
+                            : match
+                    )
+                }
+                : round
+        ));
+    };
+
+    // איפוס תוצאות מחזור
+    const handleResetRoundResults = async (roundNumber: number) => {
+        if (!window.confirm('האם אתה בטוח שברצונך לאפס את כל התוצאות והנקודות של מחזור זה?')) return;
+        try {
+            const seasonId = currentSeason;
+            // שלוף את כל המשחקים במחזור
+            const matchesSnap = await getDocs(collection(db, 'season', seasonId, 'rounds', roundNumber.toString(), 'matches'));
+            const matchIds = matchesSnap.docs.map(doc => doc.id);
+            // אפס תוצאות בכל משחק
+            const batch = writeBatch(db);
+            for (const matchDoc of matchesSnap.docs) {
+                batch.update(matchDoc.ref, {
+                    actualHomeScore: null,
+                    actualAwayScore: null,
+                    pointsCalculated: false
+                });
+            }
+            // שלוף את כל המשתמשים
+            const playerBetsSnap = await getDocs(collection(db, 'season', seasonId, 'playerBets'));
+            for (const userDoc of playerBetsSnap.docs) {
+                const playerBetsData = userDoc.data();
+                const roundBetsRef = doc(db, 'season', seasonId, 'playerBets', userDoc.id, 'roundBetsCollection', roundNumber.toString());
+                const roundBetsSnap = await getDoc(roundBetsRef);
+                let roundPointsToSubtract = 0;
+                if (roundBetsSnap.exists()) {
+                    const bets = roundBetsSnap.data().bets || [];
+                    // אפס נקודות רק למשחקים של המחזור הזה
+                    const updatedBets = bets.map((bet: any) => {
+                        if (matchIds.includes(bet.matchId)) {
+                            roundPointsToSubtract += bet.points || 0;
+                            return {
+                                ...bet,
+                                points: 0,
+                                isExactResult: false,
+                                isCorrectDirection: false
+                            };
+                        }
+                        return bet;
+                    });
+                    batch.update(roundBetsRef, { bets: updatedBets });
+                }
+                // אפס roundPoints במחזור הזה והפחת מה-totalPoints
+                if (playerBetsData.roundPoints && playerBetsData.roundPoints[roundNumber]) {
+                    const updatedRoundPoints = { ...playerBetsData.roundPoints };
+                    roundPointsToSubtract = updatedRoundPoints[roundNumber];
+                    updatedRoundPoints[roundNumber] = 0;
+                    const newTotalPoints = (playerBetsData.totalPoints || 0) - (roundPointsToSubtract || 0);
+                    batch.update(userDoc.ref, {
+                        roundPoints: updatedRoundPoints,
+                        totalPoints: newTotalPoints < 0 ? 0 : newTotalPoints
+                    });
+                }
+            }
+            await batch.commit();
+            await loadData();
+            alert('כל התוצאות והנקודות של המחזור אופסו בהצלחה!');
+        } catch (error) {
+            alert('שגיאה באיפוס התוצאות.');
+        }
+    };
+
+    // פונקציית איפוס קטגוריה בסיום עונה
+    const handleResetSeasonResult = (key: keyof typeof seasonResults) => {
+        if (!window.confirm('האם לאפס ערך זה?')) return;
+        setSeasonResults(prev => ({ ...prev, [key]: '' }));
+    };
+
+    // כפתור איפוס כללי לסוף עונה
+    const handleResetAllSeasonResults = async () => {
+        if (!window.confirm('האם לאפס את כל בחירות סוף העונה?')) return;
+        try {
+            const seasonRef = doc(db, 'season', currentSeason);
+            await updateDoc(seasonRef, {
+                champion: '',
+                cupWinner: '',
+                relegation1: '',
+                relegation2: '',
+                topScorer: '',
+                topAssists: ''
+            });
+            setSeasonResults({
+                champion: '',
+                cupWinner: '',
+                relegation1: '',
+                relegation2: '',
+                topScorer: '',
+                topAssists: ''
+            });
+            alert('כל בחירות סוף העונה אופסו בהצלחה!');
+        } catch (error) {
+            alert('שגיאה באיפוס בחירות סוף העונה.');
+        }
+    };
+
+    // פונקציה לשמירת שעת סגירת הימורים מקדימים
+    const handleSaveSeasonStart = async () => {
+        if (!seasonStart) return;
+        try {
+            const seasonRef = doc(db, 'season', currentSeason);
+            // שמור כ-ISO string
+            await updateDoc(seasonRef, { seasonStart });
+            alert('שעת סגירת ההימורים המקדימים עודכנה בהצלחה!');
+        } catch (error) {
+            alert('שגיאה בעדכון שעת סגירת ההימורים.');
+        }
+    };
 
     if (loading) {
         return (
@@ -515,35 +700,35 @@ export default function AdminPage() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex space-x-4 border-b">
+                <div className="flex space-x-4 rtl:space-x-reverse border-b overflow-x-auto">
                     <Button
-                        variant={activeTab === 'rounds' ? 'default' : 'ghost'}
+                        variant="outline"
                         onClick={() => setActiveTab('rounds')}
-                        className="flex items-center gap-2"
+                        className={`flex items-center gap-2 ${activeTab === 'rounds' ? 'text-blue-700 font-bold' : ''}`}
                     >
                         <Calendar size={16} />
                         מחזורים
                     </Button>
                     <Button
-                        variant={activeTab === 'results' ? 'default' : 'ghost'}
+                        variant="outline"
                         onClick={() => setActiveTab('results')}
-                        className="flex items-center gap-2"
+                        className={`flex items-center gap-2 ${activeTab === 'results' ? 'text-blue-700 font-bold' : ''}`}
                     >
                         <Target size={16} />
                         תוצאות
                     </Button>
                     <Button
-                        variant={activeTab === 'season' ? 'default' : 'ghost'}
+                        variant="outline"
                         onClick={() => setActiveTab('season')}
-                        className="flex items-center gap-2"
+                        className={`flex items-center gap-2 ${activeTab === 'season' ? 'text-blue-700 font-bold' : ''}`}
                     >
                         <Trophy size={16} />
                         סיום עונה
                     </Button>
                     <Button
-                        variant={activeTab === 'users' ? 'default' : 'ghost'}
+                        variant="outline"
                         onClick={() => setActiveTab('users')}
-                        className="flex items-center gap-2"
+                        className={`flex items-center gap-2 ${activeTab === 'users' ? 'text-blue-700 font-bold' : ''}`}
                     >
                         <Users size={16} />
                         משתמשים
@@ -556,14 +741,6 @@ export default function AdminPage() {
                         <div className="flex justify-between items-center">
                             <h2 className="text-xl font-semibold">ניהול מחזורים</h2>
                             <div className="flex gap-2">
-                                <Button 
-                                    variant="outline" 
-                                    onClick={loadData}
-                                    className="flex items-center gap-2"
-                                >
-                                    <Settings size={16} />
-                                    רענן נתונים
-                                </Button>
                                 <Button onClick={handleAddRound} className="flex items-center gap-2">
                                     <Plus size={16} />
                                     הוסף מחזור
@@ -714,26 +891,7 @@ export default function AdminPage() {
                                                                         </select>
                                                                     </div>
                                                                 </div>
-                                                                <div className="grid grid-cols-2 gap-2">
-                                                                    <div>
-                                                                        <label className="block text-xs text-gray-600 mb-1">תאריך</label>
-                                                                        <input
-                                                                            type="date"
-                                                                            value={match.date}
-                                                                            onChange={(e) => handleUpdateMatch(round.number, match.uid, 'date', e.target.value)}
-                                                                            className="w-full px-2 py-1 text-sm border rounded"
-                                                                        />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="block text-xs text-gray-600 mb-1">שעה</label>
-                                                                        <input
-                                                                            type="time"
-                                                                            value={match.startTime}
-                                                                            onChange={(e) => handleUpdateMatch(round.number, match.uid, 'startTime', e.target.value)}
-                                                                            className="w-full px-2 py-1 text-sm border rounded"
-                                                                        />
-                                                                    </div>
-                                                                </div>
+                                                                {/* שדה תאריך הוסר */}
                                                             </div>
                                                         ))}
                                                         <Button
@@ -805,14 +963,7 @@ export default function AdminPage() {
                     <div className="space-y-4">
                         <div className="flex justify-between items-center">
                             <h2 className="text-xl font-semibold">תוצאות מחזורים</h2>
-                            <Button 
-                                variant="outline" 
-                                onClick={loadData}
-                                className="flex items-center gap-2"
-                            >
-                                <Settings size={16} />
-                                רענן נתונים
-                            </Button>
+                            {/* כפתור רענון הוסר */}
                         </div>
                         
                         {rounds.length === 0 ? (
@@ -852,6 +1003,14 @@ export default function AdminPage() {
                                                         ✓ {round.matchesDetails?.filter(match => match.pointsCalculated).length || 0} משחקים חושבו
                                                     </span>
                                                 )}
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleResetRoundResults(round.number)}
+                                                    className="text-orange-600 hover:text-orange-700"
+                                                >
+                                                    אפס תוצאות מחזור
+                                                </Button>
                                             </div>
                                         </CardTitle>
                                     </CardHeader>
@@ -860,7 +1019,7 @@ export default function AdminPage() {
                                             {(round.matchesDetails || []).map((match) => (
                                                 <div
                                                     key={match.uid}
-                                                    className="flex items-center justify-between p-3 rounded-lg border bg-gray-50"
+                                                    className={`flex items-center justify-between p-3 rounded-lg border ${match.isCancelled ? 'bg-red-50 border-red-200 opacity-70' : 'bg-gray-50'}`}
                                                 >
                                                     <div className="flex-1">
                                                         <div className="flex items-center gap-4">
@@ -874,9 +1033,6 @@ export default function AdminPage() {
                                                             </div>
                                                             <div className="text-center mx-4">
                                                                 <div className="text-sm text-gray-600">נגד</div>
-                                                                <div className="text-xs text-gray-500">
-                                                                    {match.date} - {match.startTime}
-                                                                </div>
                                                             </div>
                                                             <div className="text-center flex-1">
                                                                 <div className="flex items-center justify-center gap-2">
@@ -890,52 +1046,78 @@ export default function AdminPage() {
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                         {editingResults === round.number ? (
-                                                            <>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    max="20"
-                                                                    placeholder="0"
-                                                                    className="w-16 h-10 text-center border rounded"
-                                                                    defaultValue={match.actualHomeScore || ''}
-                                                                    onChange={(e) => {
-                                                                        const updatedMatches = round.matchesDetails?.map(m => 
-                                                                            m.uid === match.uid 
-                                                                                ? { ...m, actualHomeScore: parseInt(e.target.value) || 0 }
-                                                                                : m
-                                                                        ) || [];
-                                                                        setRounds(prev => prev.map(r => 
-                                                                            r.number === round.number 
-                                                                                ? { ...r, matchesDetails: updatedMatches }
-                                                                                : r
-                                                                        ));
-                                                                    }}
-                                                                />
-                                                                <span className="text-lg font-semibold">-</span>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    max="20"
-                                                                    placeholder="0"
-                                                                    className="w-16 h-10 text-center border rounded"
-                                                                    defaultValue={match.actualAwayScore || ''}
-                                                                    onChange={(e) => {
-                                                                        const updatedMatches = round.matchesDetails?.map(m => 
-                                                                            m.uid === match.uid 
-                                                                                ? { ...m, actualAwayScore: parseInt(e.target.value) || 0 }
-                                                                                : m
-                                                                        ) || [];
-                                                                        setRounds(prev => prev.map(r => 
-                                                                            r.number === round.number 
-                                                                                ? { ...r, matchesDetails: updatedMatches }
-                                                                                : r
-                                                                        ));
-                                                                    }}
-                                                                />
-                                                            </>
+                                                            match.isCancelled ? (
+                                                                <>
+                                                                    <span className="text-red-600 font-bold mr-2">משחק זה בוטל</span>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={async () => {
+                                                                            const matchRef = doc(db, 'season', currentSeason, 'rounds', round.number.toString(), 'matches', match.uid);
+                                                                            await updateDoc(matchRef, { isCancelled: deleteField() });
+                                                                            await loadData();
+                                                                        }}
+                                                                        className="text-green-600 hover:text-green-700 ml-2"
+                                                                    >
+                                                                        החזר משחק
+                                                                    </Button>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        max="20"
+                                                                        placeholder="0"
+                                                                        className="w-16 h-10 text-center border rounded"
+                                                                        defaultValue={match.actualHomeScore || ''}
+                                                                        onChange={(e) => {
+                                                                            const updatedMatches = round.matchesDetails?.map(m => 
+                                                                                m.uid === match.uid 
+                                                                                    ? { ...m, actualHomeScore: parseInt(e.target.value) || 0 }
+                                                                                    : m
+                                                                            ) || [];
+                                                                            setRounds(prev => prev.map(r => 
+                                                                                r.number === round.number 
+                                                                                    ? { ...r, matchesDetails: updatedMatches }
+                                                                                    : r
+                                                                            ));
+                                                                        }}
+                                                                    />
+                                                                    <span className="text-lg font-semibold">-</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        max="20"
+                                                                        placeholder="0"
+                                                                        className="w-16 h-10 text-center border rounded"
+                                                                        defaultValue={match.actualAwayScore || ''}
+                                                                        onChange={(e) => {
+                                                                            const updatedMatches = round.matchesDetails?.map(m => 
+                                                                                m.uid === match.uid 
+                                                                                    ? { ...m, actualAwayScore: parseInt(e.target.value) || 0 }
+                                                                                    : m
+                                                                            ) || [];
+                                                                            setRounds(prev => prev.map(r => 
+                                                                                r.number === round.number 
+                                                                                    ? { ...r, matchesDetails: updatedMatches }
+                                                                                    : r
+                                                                            ));
+                                                                        }}
+                                                                    />
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => handleCancelMatch(round.number, match.uid)}
+                                                                        className="text-red-600 hover:text-red-700 ml-2"
+                                                                    >
+                                                                        בטל משחק
+                                                                    </Button>
+                                                                </>
+                                                            )
                                                         ) : (
                                                             <div className="text-center">
-                                                                {match.actualHomeScore !== undefined && match.actualAwayScore !== undefined ? (
+                                                                {(match.actualHomeScore !== undefined && match.actualHomeScore !== null) && (match.actualAwayScore !== undefined && match.actualAwayScore !== null) ? (
                                                                     <div>
                                                                         <p className="font-semibold">
                                                                             {match.actualHomeScore} - {match.actualAwayScore}
@@ -946,6 +1128,9 @@ export default function AdminPage() {
                                                                     </div>
                                                                 ) : (
                                                                     <p className="text-gray-500">לא הוזן</p>
+                                                                )}
+                                                                {match.isCancelled && (
+                                                                    <div className="text-red-600 font-bold mt-1">משחק זה בוטל</div>
                                                                 )}
                                                             </div>
                                                         )}
@@ -962,16 +1147,26 @@ export default function AdminPage() {
                                             )}
                                             {editingResults === round.number && (
                                                 <div className="flex gap-2 justify-end">
+                                                    {/* 5. כפתור שמירת תוצאות עם חיווי */}
                                                     <Button
                                                         size="sm"
                                                         onClick={() => handleSaveResults(round.number)}
+                                                        disabled={isCalculatingPoints}
                                                     >
-                                                        שמור תוצאות
+                                                        {isCalculatingPoints ? (
+                                                            <>
+                                                                <span className="animate-spin inline-block mr-2 w-4 h-4 border-b-2 border-blue-600 rounded-full"></span>
+                                                                מחשב נקודות...
+                                                            </>
+                                                        ) : (
+                                                            'שמור תוצאות'
+                                                        )}
                                                     </Button>
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
                                                         onClick={() => setEditingResults(null)}
+                                                        disabled={isCalculatingPoints}
                                                     >
                                                         ביטול
                                                     </Button>
@@ -989,7 +1184,26 @@ export default function AdminPage() {
                 {activeTab === 'season' && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold">סיום עונה</h2>
-                        
+
+                        {/* שעת סגירת ההימורים המקדימים - בראש הטאב */}
+                        <div className="flex flex-col items-center justify-center mb-6">
+                            <label className="block text-base font-bold text-blue-800 mb-2">שעת סגירת ההימורים המקדימים</label>
+                            <div className="flex gap-2 items-center">
+                                <input
+                                    type="datetime-local"
+                                    value={seasonStart}
+                                    onChange={e => setSeasonStart(e.target.value)}
+                                    className="border rounded px-3 py-2 text-sm"
+                                />
+                                <Button variant="outline" onClick={handleSaveSeasonStart} disabled={!seasonStart}>
+                                    שמור שעה
+                                </Button>
+                            </div>
+                            {seasonStart && (
+                                <div className="text-xs text-gray-600 mt-1">שעה נוכחית: {new Date(seasonStart).toLocaleString('he-IL')}</div>
+                            )}
+                        </div>
+
                         <Card className="bg-white rounded-xl shadow-sm">
                             <CardHeader>
                                 <CardTitle>הזנת תוצאות סוף עונה</CardTitle>
@@ -1004,6 +1218,9 @@ export default function AdminPage() {
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             <Trophy size={16} className="inline mr-2" />
                                             אלופה
+                                            {seasonResults.champion && (
+                                                <span className="ml-2 text-green-700 text-xs font-bold inline-flex items-center">✓ הוזן</span>
+                                            )}
                                         </label>
                                         <select
                                             value={seasonResults.champion}
@@ -1031,6 +1248,9 @@ export default function AdminPage() {
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             <Trophy size={16} className="inline mr-2" />
                                             זוכת גביע
+                                            {seasonResults.cupWinner && (
+                                                <span className="ml-2 text-green-700 text-xs font-bold inline-flex items-center">✓ הוזן</span>
+                                            )}
                                         </label>
                                         <select
                                             value={seasonResults.cupWinner}
@@ -1058,6 +1278,9 @@ export default function AdminPage() {
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             <TrendingDown size={16} className="inline mr-2" />
                                             יורדת ראשונה
+                                            {seasonResults.relegation1 && (
+                                                <span className="ml-2 text-green-700 text-xs font-bold inline-flex items-center">✓ הוזן</span>
+                                            )}
                                         </label>
                                         <select
                                             value={seasonResults.relegation1}
@@ -1085,6 +1308,9 @@ export default function AdminPage() {
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             <TrendingDown size={16} className="inline mr-2" />
                                             יורדת שנייה
+                                            {seasonResults.relegation2 && (
+                                                <span className="ml-2 text-green-700 text-xs font-bold inline-flex items-center">✓ הוזן</span>
+                                            )}
                                         </label>
                                         <select
                                             value={seasonResults.relegation2}
@@ -1116,6 +1342,9 @@ export default function AdminPage() {
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             <Target size={16} className="inline mr-2" />
                                             מלך שערים
+                                            {seasonResults.topScorer && (
+                                                <span className="ml-2 text-green-700 text-xs font-bold inline-flex items-center">✓ הוזן</span>
+                                            )}
                                         </label>
                                         <div className="relative">
                                             <input
@@ -1163,6 +1392,9 @@ export default function AdminPage() {
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             <Target size={16} className="inline mr-2" />
                                             מלך בישולים
+                                            {seasonResults.topAssists && (
+                                                <span className="ml-2 text-green-700 text-xs font-bold inline-flex items-center">✓ הוזן</span>
+                                            )}
                                         </label>
                                         <div className="relative">
                                             <input
@@ -1209,7 +1441,7 @@ export default function AdminPage() {
 
                                 
                                 {/* כפתור שמירה */}
-                                <div className="flex justify-end">
+                                <div className="flex justify-end gap-2">
                                     <Button
                                         onClick={handleSaveSeasonEnd}
                                         disabled={!isSeasonEndFormValid()}
@@ -1217,6 +1449,13 @@ export default function AdminPage() {
                                     >
                                         <Trophy size={16} />
                                         שמור תוצאות סוף עונה
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        onClick={handleResetAllSeasonResults}
+                                        className="flex items-center gap-2 text-orange-700 border-orange-300"
+                                    >
+                                        איפוס כל בחירות סוף עונה
                                     </Button>
                                 </div>
                             </CardContent>
@@ -1399,18 +1638,6 @@ export default function AdminPage() {
                                                 type="date"
                                                 value={match.date}
                                                 onChange={(e) => handleUpdateNewMatch(index, 'date', e.target.value)}
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                            />
-                                        </div>
-                                        
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                שעה
-                                            </label>
-                                            <input
-                                                type="time"
-                                                value={match.startTime}
-                                                onChange={(e) => handleUpdateNewMatch(index, 'startTime', e.target.value)}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                                             />
                                         </div>

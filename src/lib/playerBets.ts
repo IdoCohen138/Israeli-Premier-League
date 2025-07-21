@@ -210,6 +210,8 @@ export const updatePlayerPoints = async (
     roundPoints?: Record<number, number>;
     correctPredictions?: number;
     exactPredictions?: number;
+    correctPredictionsMap?: Record<number, number>;
+    exactPredictionsMap?: Record<number, number>;
   }
 ): Promise<void> => {
   try {
@@ -220,10 +222,22 @@ export const updatePlayerPoints = async (
     const currentDoc = await getDoc(playerBetsRef);
     const currentData = currentDoc.exists() ? currentDoc.data() : {};
     
+    // מיזוג המפות החדשות עם הקיימות
+    const mergedCorrectPredictionsMap = {
+      ...(currentData.correctPredictionsMap || {}),
+      ...(points.correctPredictionsMap || {})
+    };
+    const mergedExactPredictionsMap = {
+      ...(currentData.exactPredictionsMap || {}),
+      ...(points.exactPredictionsMap || {})
+    };
+    
     // מיזוג הנתונים החדשים עם הקיימים
     const updatedData = {
       ...currentData,
       ...points,
+      correctPredictionsMap: mergedCorrectPredictionsMap,
+      exactPredictionsMap: mergedExactPredictionsMap,
       updatedAt: new Date(),
     };
     
@@ -281,9 +295,9 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
     
     console.log(`Found ${matches.length} matches for round ${roundNumber}:`, matches);
     
-    // בדיקת משחקים ללא תוצאות
+    // בדיקת משחקים ללא תוצאות (רק לא מבוטלים)
     const incompleteMatches = matches.filter(match => 
-      match.actualHomeScore === undefined || match.actualAwayScore === undefined
+      !match.isCancelled && (match.actualHomeScore === undefined || match.actualAwayScore === undefined)
     );
     
     if (incompleteMatches.length > 0) {
@@ -329,7 +343,66 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
     console.log('All bets for round:', allBetsForRound);
     
     // חישוב נקודות לכל משחק בנפרד
+    // --- נצבור כאן את המפות החדשות לכל משתמש ---
+    const userCorrectPredictionsMap: Record<string, number> = {};
+    const userExactPredictionsMap: Record<string, number> = {};
+    // ---
     for (const match of matches) {
+      // טיפול במשחקים מבוטלים: אם בוטל וכבר חושבו נקודות - יש להוריד אותן; אם לא חושבו, פשוט להתעלם
+      if (match.isCancelled) {
+        if (match.pointsCalculated) {
+          // עבור כל משתמש, נחסר את הנקודות שכבר חושבו עבור המשחק הזה
+          for (const playerDoc of playersSnapshot.docs) {
+            const userId = playerDoc.id;
+            const userRoundBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId, 'roundBetsCollection', roundNumber.toString());
+            const userRoundBetsDoc = await getDoc(userRoundBetsRef);
+            if (userRoundBetsDoc.exists()) {
+              const userBets = userRoundBetsDoc.data().bets || [];
+              const userBet = userBets.find((bet: Bet) => bet.matchId === match.uid);
+              if (userBet && userBet.points && userBet.points > 0) {
+                // נוריד את הנקודות מהמשתמש
+                const currentPlayerBets = await getPlayerBets(userId);
+                if (currentPlayerBets) {
+                  const currentRoundPoints = (currentPlayerBets.roundPoints || {})[roundNumber] || 0;
+                  const newRoundPoints = currentRoundPoints - userBet.points;
+                  const newTotalPoints = (currentPlayerBets.totalPoints || 0) - userBet.points;
+                  // נוריד גם correct/exact אם צריך
+                  let correctPredictionsToSubtract = 0;
+                  let exactPredictionsToSubtract = 0;
+                  if (userBet.isExactResult) exactPredictionsToSubtract = 1;
+                  else if (userBet.isCorrectDirection) correctPredictionsToSubtract = 1;
+                  await updatePlayerPoints(userId, {
+                    totalPoints: newTotalPoints,
+                    roundPoints: {
+                      ...(currentPlayerBets.roundPoints || {}),
+                      [roundNumber]: newRoundPoints
+                    },
+                    correctPredictions: (currentPlayerBets.correctPredictions || 0) - correctPredictionsToSubtract,
+                    exactPredictions: (currentPlayerBets.exactPredictions || 0) - exactPredictionsToSubtract,
+                    correctPredictionsMap: {
+                      ...(currentPlayerBets.correctPredictionsMap || {}),
+                      [roundNumber]: ((currentPlayerBets.correctPredictionsMap?.[roundNumber] || 0) - correctPredictionsToSubtract)
+                    },
+                    exactPredictionsMap: {
+                      ...(currentPlayerBets.exactPredictionsMap || {}),
+                      [roundNumber]: ((currentPlayerBets.exactPredictionsMap?.[roundNumber] || 0) - exactPredictionsToSubtract)
+                    }
+                  });
+                  // אפס את הנקודות על ההימור עצמו
+                  const updatedBets = userBets.map((bet: Bet) =>
+                    bet.matchId === match.uid
+                      ? { ...bet, points: 0, isExactResult: false, isCorrectDirection: false }
+                      : bet
+                  );
+                  await updateDoc(userRoundBetsRef, { bets: updatedBets });
+                }
+              }
+            }
+          }
+        }
+        // דלג על חישוב נקודות חדשות למשחק מבוטל
+        continue;
+      }
       // וידוא שיש תוצאות למשחק (אחרי הבדיקה למעלה זה אמור להיות בטוח)
       if (match.actualHomeScore === undefined || match.actualAwayScore === undefined) {
         console.warn(`Match ${match.uid} still has no results, skipping...`);
@@ -436,7 +509,15 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
                   [roundNumber]: newRoundPoints
                 },
                 correctPredictions: (currentPlayerBets.correctPredictions || 0) - correctPredictionsToSubtract + (isCorrectDirection ? 1 : 0),
-                exactPredictions: (currentPlayerBets.exactPredictions || 0) - exactPredictionsToSubtract + (isExact ? 1 : 0)
+                exactPredictions: (currentPlayerBets.exactPredictions || 0) - exactPredictionsToSubtract + (isExact ? 1 : 0),
+                correctPredictionsMap: {
+                  ...(currentPlayerBets.correctPredictionsMap || {}),
+                  [roundNumber]: (currentPlayerBets.correctPredictionsMap?.[roundNumber] || 0) - correctPredictionsToSubtract + (isCorrectDirection ? 1 : 0)
+                },
+                exactPredictionsMap: {
+                  ...(currentPlayerBets.exactPredictionsMap || {}),
+                  [roundNumber]: (currentPlayerBets.exactPredictionsMap?.[roundNumber] || 0) - exactPredictionsToSubtract + (isExact ? 1 : 0)
+                }
               });
               
               console.log(`Updated points for user ${userId}: Total=${newTotalPoints}, Round ${roundNumber}=${newRoundPoints}`);
@@ -605,19 +686,25 @@ export const deleteRoundPoints = async (roundNumber: number): Promise<void> => {
         
         if (totalPointsToSubtract > 0) {
           console.log(`Subtracting ${totalPointsToSubtract} points from user ${userId} for round ${roundNumber}`);
-          
           // עדכון הנקודות של המשתמש
           const currentPlayerBets = await getPlayerBets(userId);
           if (currentPlayerBets) {
             const newTotalPoints = (currentPlayerBets.totalPoints || 0) - totalPointsToSubtract;
             const newRoundPoints = { ...(currentPlayerBets.roundPoints || {}) };
             delete newRoundPoints[roundNumber]; // מחיקת הנקודות של המחזור
-            
+            const newCorrectPredictionsMap = { ...(currentPlayerBets.correctPredictionsMap || {}) };
+            const newExactPredictionsMap = { ...(currentPlayerBets.exactPredictionsMap || {}) };
+            const correctPredictionsToSubtractMap = newCorrectPredictionsMap[roundNumber] || 0;
+            const exactPredictionsToSubtractMap = newExactPredictionsMap[roundNumber] || 0;
+            delete newCorrectPredictionsMap[roundNumber];
+            delete newExactPredictionsMap[roundNumber];
             await updatePlayerPoints(userId, {
               totalPoints: newTotalPoints,
               roundPoints: newRoundPoints,
-              correctPredictions: (currentPlayerBets.correctPredictions || 0) - correctPredictionsToSubtract,
-              exactPredictions: (currentPlayerBets.exactPredictions || 0) - exactPredictionsToSubtract
+              correctPredictions: (currentPlayerBets.correctPredictions || 0) - correctPredictionsToSubtract - correctPredictionsToSubtractMap,
+              exactPredictions: (currentPlayerBets.exactPredictions || 0) - exactPredictionsToSubtract - exactPredictionsToSubtractMap,
+              correctPredictionsMap: newCorrectPredictionsMap,
+              exactPredictionsMap: newExactPredictionsMap
             });
           }
         }

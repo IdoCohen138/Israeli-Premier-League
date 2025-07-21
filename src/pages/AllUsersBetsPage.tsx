@@ -34,6 +34,8 @@ interface Bet {
 interface MatchInfo {
   homeTeam: string;
   awayTeam: string;
+  actualHomeScore?: number;
+  actualAwayScore?: number;
 }
 
 const AllUsersBetsPage: React.FC = () => {
@@ -51,6 +53,7 @@ const AllUsersBetsPage: React.FC = () => {
   const [players, setPlayers] = useState<Player[]>([]);
   const [seasonStarted, setSeasonStarted] = useState(false);
   const [seasonStartDate, setSeasonStartDate] = useState<Date | null>(null);
+  const [seasonResults, setSeasonResults] = useState<any>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -118,7 +121,9 @@ const AllUsersBetsPage: React.FC = () => {
           const data = doc.data();
           matchesMapLocal[doc.id] = {
             homeTeam: data.homeTeam || '',
-            awayTeam: data.awayTeam || ''
+            awayTeam: data.awayTeam || '',
+            actualHomeScore: data.actualHomeScore,
+            actualAwayScore: data.actualAwayScore,
           };
         });
         setMatchesMap(matchesMapLocal);
@@ -191,6 +196,15 @@ const AllUsersBetsPage: React.FC = () => {
     checkSeasonStart();
   }, []);
 
+  // הימורים מקדימים: שליפת תוצאות סוף עונה
+  useEffect(() => {
+    const fetchSeasonResults = async () => {
+      const seasonData = await getCurrentSeasonData();
+      setSeasonResults(seasonData);
+    };
+    fetchSeasonResults();
+  }, [activeTab]);
+
   return (
     <div dir="rtl" className="min-h-screen bg-gray-100 flex flex-col items-center py-8 px-2">
       <div className="w-full max-w-3xl flex justify-end mb-4">
@@ -228,61 +242,90 @@ const AllUsersBetsPage: React.FC = () => {
               </div>
             )}
             {roundClosed && !loading && (
-              <div className="overflow-x-auto">
-                <table className="min-w-full bg-white rounded-xl shadow border-separate border-spacing-0">
-                  <thead className="bg-blue-100 sticky top-0 z-10">
-                    <tr>
-                      <th className="p-3 border-b text-blue-800 text-lg font-semibold text-center">משתמש</th>
-                      <th className="p-3 border-b text-blue-800 text-lg font-semibold text-center">הימורים</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((user, idx) => (
-                      <tr key={user.uid} className={idx % 2 === 0 ? 'bg-blue-50' : 'bg-white'}>
-                        <td className="p-3 border-b font-bold text-gray-800 text-center align-top w-40">{user.displayName}</td>
-                        <td className="p-3 border-b">
-                          {betsByUser[user.uid] ? (
-                            <table className="w-full text-sm rounded-lg">
-                              <thead>
-                                <tr>
-                                  <th className="p-1 text-gray-600">משחק</th>
-                                  <th className="p-1 text-gray-600">תוצאה</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {betsByUser[user.uid].map((bet) => {
-                                  const match = matchesMap[bet.matchId];
-                                  const matchLabel = match ? `${match.homeTeam} - ${match.awayTeam}` : bet.matchId;
-                                  return (
-                                    <tr key={bet.matchId} className={
-                                      bet.isExactResult ? 'bg-green-100 font-bold' : bet.isCorrectDirection ? 'bg-yellow-100' : ''
-                                    }>
-                                      <td className="p-1 text-center">{matchLabel}</td>
-                                      <td className="p-1 text-center">{bet.homeScore} - {bet.awayScore}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <div className="text-gray-400 text-center py-2">לא הימר</div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    {users.length === 0 && (
+              <>
+                {/* מקרא צבעים */}
+                <div className="flex flex-wrap gap-4 items-center justify-center mb-4 text-xs">
+                  <div className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-green-200 border border-green-400"></span> פגיעה מדויקת</div>
+                  <div className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-yellow-200 border border-yellow-400"></span> פגיעה בכיוון</div>
+                  <div className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-purple-200 border border-purple-400"></span> בלעדיות (היחיד שפגע)</div>
+                  <div className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gray-100 border border-gray-300"></span> לא פגע</div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-white rounded-xl shadow border-separate border-spacing-0">
+                    <thead className="bg-blue-100 sticky top-0 z-10">
                       <tr>
-                        <td colSpan={2} className="text-center text-gray-400 py-8">אין משתמשים להצגה</td>
+                        <th className="p-3 border-b text-blue-800 text-lg font-semibold text-center">משחק</th>
+                        <th className="p-3 border-b text-blue-800 text-lg font-semibold text-center">תוצאה</th>
+                        {users.map(user => (
+                          <th key={user.uid} className="p-3 border-b text-blue-800 text-lg font-semibold text-center">{user.displayName}</th>
+                        ))}
                       </tr>
-                    )}
-                    {users.length > 0 && Object.keys(betsByUser).length === 0 && (
-                      <tr>
-                        <td colSpan={2} className="text-center text-gray-400 py-8">אין הימורים למחזור זה</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {Object.entries(matchesMap).map(([matchId, matchInfo], matchIdx) => {
+                        // אסוף את כל ההימורים של המשתמשים למשחק זה
+                        const betsForMatch = users.map(user => (betsByUser[user.uid]?.find(bet => bet.matchId === matchId)));
+                        // מצא את התוצאה האמיתית (אם יש)
+                        // (אין לנו כאן את התוצאה בפועל, אז נניח שהשדה points קיים רק אם חושב)
+                        // נחשב מי פגע מדויק/כיוון
+                        const exactUsers = users.filter((user, idx) => betsForMatch[idx]?.isExactResult);
+                        const directionUsers = users.filter((user, idx) => betsForMatch[idx]?.isCorrectDirection && !betsForMatch[idx]?.isExactResult);
+                        return (
+                          <tr key={matchId} className={matchIdx % 2 === 0 ? 'bg-blue-50' : 'bg-white'}>
+                            <td className="p-3 border-b font-bold text-gray-800 text-center align-top w-40">
+                              {matchInfo.homeTeam} - {matchInfo.awayTeam}
+                            </td>
+                            <td className="p-3 border-b text-center align-middle font-bold">
+                              {(typeof matchInfo.actualHomeScore === 'number' && typeof matchInfo.actualAwayScore === 'number')
+                                ? `${matchInfo.actualHomeScore} - ${matchInfo.actualAwayScore}`
+                                : <span className="text-gray-400">—</span>}
+                            </td>
+                            {users.map((user, idx) => {
+                              const bet = betsForMatch[idx];
+                              let bg = 'bg-gray-100 border border-gray-300';
+                              let text = 'text-gray-800';
+                              let bonusIcon = null;
+                              // בלעדיות מדויק
+                              if (bet?.isExactResult && exactUsers.length === 1) {
+                                bg = 'bg-purple-200 border border-purple-400';
+                                text = 'text-purple-900 font-bold';
+                                bonusIcon = <span title="בונוס בלעדיות" className="ml-1">★</span>;
+                              } else if (bet?.isExactResult) {
+                                bg = 'bg-green-200 border border-green-400';
+                                text = 'text-green-900 font-bold';
+                              } else if (bet?.isCorrectDirection && directionUsers.length === 1) {
+                                bg = 'bg-purple-200 border border-purple-400';
+                                text = 'text-purple-900 font-bold';
+                                bonusIcon = <span title="בונוס בלעדיות" className="ml-1">★</span>;
+                              } else if (bet?.isCorrectDirection) {
+                                bg = 'bg-yellow-200 border border-yellow-400';
+                                text = 'text-yellow-900 font-bold';
+                              }
+                              return (
+                                <td key={user.uid} className={`p-3 border-b text-center align-middle ${bg} ${text} relative`}>
+                                  {bet ? (
+                                    <>
+                                      <div className="flex items-center justify-center gap-1">
+                                        {bonusIcon}
+                                        <span>{bet.homeScore} - {bet.awayScore}</span>
+                                      </div>
+                                      {(typeof matchesMap[matchId]?.actualHomeScore === 'number' && typeof matchesMap[matchId]?.actualAwayScore === 'number') ? (
+                                          <div className="text-[10px] text-gray-700 mt-1">{bet.points ?? 0} נק'</div>
+                                      ) : null}
+                                    </>
+                                  ) : (
+                                    <span className="text-gray-400">—</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
             {loading && <div className="text-center text-gray-500 py-8">טוען...</div>}
           </>
@@ -298,6 +341,22 @@ const AllUsersBetsPage: React.FC = () => {
                       <th key={key} className="p-3 border-b text-blue-800 text-lg font-semibold text-center">{label}</th>
                     ))}
                   </tr>
+                  {seasonResults && (
+                    <tr>
+                      <td className="p-3 border-b text-gray-700 font-bold text-center">תוצאה</td>
+                      {Object.keys(PRESEASON_BET_LABELS).map((betKey) => {
+                        let display = '';
+                        if (['champion', 'cup', 'relegation1', 'relegation2'].includes(betKey)) {
+                          display = teams.find(t => t.uid === seasonResults[betKey === 'cup' ? 'cupWinner' : betKey])?.name || '';
+                        } else if (['topScorer', 'topAssists'].includes(betKey)) {
+                          display = players.find(p => p.uid === seasonResults[betKey])?.name || '';
+                        }
+                        return (
+                          <td key={betKey} className="p-3 border-b text-center text-sm font-bold text-blue-700">{display || <span className="text-gray-400">—</span>}</td>
+                        );
+                      })}
+                    </tr>
+                  )}
                 </thead>
                 <tbody>
                   {users.map((user, idx) => (
@@ -306,13 +365,34 @@ const AllUsersBetsPage: React.FC = () => {
                       {Object.keys(PRESEASON_BET_LABELS).map((betKey) => {
                         const betValue = preSeasonBetsByUser[user.uid]?.[betKey];
                         let display = '';
-                        if (['champion', 'cup', 'relegation1', 'relegation2'].includes(betKey)) {
+                        let isCorrect = false;
+                        let points = 0;
+                        if (['champion', 'cup'].includes(betKey)) {
                           display = teams.find(t => t.uid === betValue)?.name || '';
+                          const resultId = betKey === 'cup' ? seasonResults?.cupWinner : seasonResults?.[betKey];
+                          if (betValue && resultId && betValue === resultId) {
+                            isCorrect = true;
+                            points = betKey === 'champion' ? 10 : 8;
+                          }
+                        } else if (['relegation1', 'relegation2'].includes(betKey)) {
+                          display = teams.find(t => t.uid === betValue)?.name || '';
+                          const actualRelegated = [seasonResults?.relegation1, seasonResults?.relegation2].filter(Boolean);
+                          if (betValue && actualRelegated.includes(betValue)) {
+                            isCorrect = true;
+                            points = 5;
+                          }
                         } else if (['topScorer', 'topAssists'].includes(betKey)) {
                           display = players.find(p => p.uid === betValue)?.name || '';
+                          if (betValue && seasonResults?.[betKey] && betValue === seasonResults[betKey]) {
+                            isCorrect = true;
+                            points = betKey === 'topScorer' ? 7 : 5;
+                          }
                         }
                         return (
-                          <td key={betKey} className="p-3 border-b text-center text-sm">{display || <span className="text-gray-400">—</span>}</td>
+                          <td key={betKey} className={`p-3 border-b text-center text-sm ${isCorrect ? 'bg-green-200 border border-green-400 text-green-900 font-bold' : ''}`}>
+                            {display || <span className="text-gray-400">—</span>}
+                            {isCorrect && <div className="text-[10px] text-gray-700 mt-1">{points} נק'</div>}
+                          </td>
                         );
                       })}
                     </tr>
