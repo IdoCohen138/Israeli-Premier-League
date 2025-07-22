@@ -28,7 +28,6 @@ export default function RoundBetsPage() {
     const [currentSeason, setCurrentSeason] = useState<string>('');
     const [isBettingAllowed, setIsBettingAllowed] = useState(true);
     const [timeRemaining, setTimeRemaining] = useState<string>('');
-    const [betSaved, setBetSaved] = useState<Record<string, boolean>>({});
     const [isRoundDataLoaded, setIsRoundDataLoaded] = useState(false);
     const [maxRoundNumber, setMaxRoundNumber] = useState<number | null>(null);
     const [minRoundNumber, setMinRoundNumber] = useState<number | null>(null);
@@ -84,17 +83,14 @@ export default function RoundBetsPage() {
         setHasExistingBets(false);
         try {
             const seasonPath = getSeasonPath();
-            console.log(`[LOAD ROUND DATA] Fetching round ${roundNumber} info and matches...`);
             const roundDoc = await getDoc(doc(db, seasonPath, 'rounds', roundNumber.toString()));
             if (roundDoc.exists()) {
                 const data = roundDoc.data();
-                console.log(`[LOAD ROUND DATA] Round ${roundNumber} data:`, data);
                 const matchesSnapshot = await getDocs(collection(db, seasonPath, 'rounds', roundNumber.toString(), 'matches'));
                 const matches = matchesSnapshot.docs.map((doc) => ({
                     uid: doc.id,
                     ...doc.data(),
                 })) as Match[];
-                console.log(`[LOAD ROUND DATA] Loaded matches for round ${roundNumber}:`, matches.map(m => ({ uid: m.uid, homeTeamId: m.homeTeamId, awayTeamId: m.awayTeamId })));
                 const roundData: Round = {
                     number: roundNumber,
                     matches: matches.map(m => m.uid),
@@ -105,16 +101,13 @@ export default function RoundBetsPage() {
                 setCurrentRound(roundData);
                 checkBettingStatus(roundData);
                 setCurrentRoundNumber(roundNumber);
-                console.log(`[LOAD ROUND DATA] Fetching bets for user ${user.uid} and round ${roundNumber}...`);
                 const existingBets = await getPlayerRoundBets(user.uid, roundNumber);
                 if (existingBets) {
                     setBets(existingBets);
                     setHasExistingBets(true);
-                    console.log(`[LOAD ROUND DATA] Loaded bets for round ${roundNumber}:`, existingBets);
                 } else {
                     setBets([]);
                     setHasExistingBets(false);
-                    console.log(`[LOAD ROUND DATA] No bets found for round ${roundNumber}`);
                 }
                 setIsRoundDataLoaded(true);
                 // Update min/max round numbers if needed
@@ -176,8 +169,18 @@ export default function RoundBetsPage() {
             // עדכון המצב המקומי
             setBets(updatedBets);
             setHasExistingBets(true);
-            setBetSaved(prev => ({ ...prev, [matchId]: true }));
-            setTimeout(() => setBetSaved(prev => ({ ...prev, [matchId]: false })), 2000);
+            setTimeout(() => {
+                // Re-fetch bets to update the saved status
+                getPlayerRoundBets(user.uid, currentRoundNumber).then(newBets => {
+                    if (newBets) {
+                        setBets(newBets);
+                        setHasExistingBets(true);
+                    } else {
+                        setBets([]);
+                        setHasExistingBets(false);
+                    }
+                });
+            }, 2000);
         } catch (error) {
             console.error('Error saving bet:', error);
             setError('שגיאה בשמירת ההימור. אנא נסה שוב.');

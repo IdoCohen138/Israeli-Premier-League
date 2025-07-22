@@ -339,14 +339,6 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
         }
       }
     }
-    
-    console.log('All bets for round:', allBetsForRound);
-    
-    // חישוב נקודות לכל משחק בנפרד
-    // --- נצבור כאן את המפות החדשות לכל משתמש ---
-    const userCorrectPredictionsMap: Record<string, number> = {};
-    const userExactPredictionsMap: Record<string, number> = {};
-    // ---
     for (const match of matches) {
       // טיפול במשחקים מבוטלים: אם בוטל וכבר חושבו נקודות - יש להוריד אותן; אם לא חושבו, פשוט להתעלם
       if (match.isCancelled) {
@@ -760,7 +752,7 @@ export const recalculatePlayerPoints = async (userId: string): Promise<void> => 
         
         for (const bet of userBets as Bet[]) {
           const match = matches.find(m => m.uid === bet.matchId);
-          if (match && match.actualHomeScore !== undefined && match.actualAwayScore !== undefined) {
+          if (match && !match.isCancelled && match.actualHomeScore !== undefined && match.actualAwayScore !== undefined) {
             const actualResult = match.actualHomeScore > match.actualAwayScore ? 'home' : 
                                match.actualHomeScore < match.actualAwayScore ? 'away' : 'draw';
             const betResult = bet.homeScore > bet.awayScore ? 'home' : 
@@ -883,6 +875,151 @@ export const recalculatePlayerPoints = async (userId: string): Promise<void> => 
     console.log(`Successfully recalculated points for user ${userId}: Total=${totalPoints}, PreSeason=${preSeasonPoints}`);
   } catch (error) {
     console.error('Error recalculating player points:', error);
+    throw error;
+  }
+};
+
+// ביטול משחק - פונקציה חדשה
+export const cancelMatch = async (
+  roundNumber: number,
+  matchId: string
+): Promise<void> => {
+  console.log(`Starting to cancel match ${matchId} in round ${roundNumber}`);
+  
+  try {
+    const currentSeason = getCurrentSeason();
+    
+    // קבלת פרטי המשחק
+    const matchRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString(), 'matches', matchId);
+    const matchDoc = await getDoc(matchRef);
+    
+    if (!matchDoc.exists()) {
+      throw new Error('Match not found');
+    }
+    
+    const matchData = matchDoc.data() as Match;
+    
+    // סימון המשחק כמבוטל
+    await updateDoc(matchRef, { 
+      isCancelled: true,
+      actualHomeScore: null,
+      actualAwayScore: null
+    });
+    
+    console.log(`Match ${matchId} marked as cancelled`);
+    
+    // אם המשחק כבר חושב ונקודות חושבו עבורו - צריך להוריד אותן
+    if (matchData.pointsCalculated) {
+      console.log(`Match ${matchId} was already calculated, subtracting points...`);
+      
+      // קבלת כל המשתמשים
+      const playerBetsRef = collection(db, 'season', currentSeason, 'playerBets');
+      const playersSnapshot = await getDocs(playerBetsRef);
+      
+      for (const playerDoc of playersSnapshot.docs) {
+        const userId = playerDoc.id;
+        
+        // קבלת ההימורים של המשתמש למחזור זה
+        const userRoundBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId, 'roundBetsCollection', roundNumber.toString());
+        const userRoundBetsDoc = await getDoc(userRoundBetsRef);
+        
+        if (userRoundBetsDoc.exists()) {
+          const userBets = userRoundBetsDoc.data().bets || [];
+          const userBet = userBets.find((bet: Bet) => bet.matchId === matchId);
+          
+          if (userBet && userBet.points && userBet.points > 0) {
+            console.log(`Subtracting ${userBet.points} points from user ${userId} for cancelled match ${matchId}`);
+            
+            // קבלת הנתונים הנוכחיים של המשתמש
+            const currentPlayerBets = await getPlayerBets(userId);
+            if (currentPlayerBets) {
+              const currentRoundPoints = (currentPlayerBets.roundPoints || {})[roundNumber] || 0;
+              const newRoundPoints = currentRoundPoints - userBet.points;
+              const newTotalPoints = (currentPlayerBets.totalPoints || 0) - userBet.points;
+              
+              // חישוב מה להוריד מה-correct/exact predictions
+              let correctPredictionsToSubtract = 0;
+              let exactPredictionsToSubtract = 0;
+              
+              if (userBet.isExactResult) {
+                exactPredictionsToSubtract = 1;
+              } else if (userBet.isCorrectDirection) {
+                correctPredictionsToSubtract = 1;
+              }
+              
+              // עדכון הנקודות של המשתמש
+              await updatePlayerPoints(userId, {
+                totalPoints: newTotalPoints,
+                roundPoints: {
+                  ...(currentPlayerBets.roundPoints || {}),
+                  [roundNumber]: newRoundPoints
+                },
+                correctPredictions: (currentPlayerBets.correctPredictions || 0) - correctPredictionsToSubtract,
+                exactPredictions: (currentPlayerBets.exactPredictions || 0) - exactPredictionsToSubtract,
+                correctPredictionsMap: {
+                  ...(currentPlayerBets.correctPredictionsMap || {}),
+                  [roundNumber]: ((currentPlayerBets.correctPredictionsMap?.[roundNumber] || 0) - correctPredictionsToSubtract)
+                },
+                exactPredictionsMap: {
+                  ...(currentPlayerBets.exactPredictionsMap || {}),
+                  [roundNumber]: ((currentPlayerBets.exactPredictionsMap?.[roundNumber] || 0) - exactPredictionsToSubtract)
+                }
+              });
+              
+              console.log(`Updated points for user ${userId}: Total=${newTotalPoints}, Round ${roundNumber}=${newRoundPoints}`);
+            }
+            
+            // אפס את הנקודות על ההימור עצמו
+            const updatedBets = userBets.map((bet: Bet) =>
+              bet.matchId === matchId
+                ? { ...bet, points: 0, isExactResult: false, isCorrectDirection: false }
+                : bet
+            );
+            
+            await updateDoc(userRoundBetsRef, { bets: updatedBets });
+            console.log(`Reset bet points for user ${userId} in match ${matchId}`);
+          }
+        }
+      }
+      
+      console.log(`Successfully subtracted points for cancelled match ${matchId}`);
+    } else {
+      console.log(`Match ${matchId} was not calculated yet, no points to subtract`);
+    }
+    
+    console.log(`Successfully cancelled match ${matchId}`);
+  } catch (error) {
+    console.error('Error cancelling match:', error);
+    throw error;
+  }
+};
+
+// החזרת משחק מבוטל - פונקציה חדשה
+export const restoreCancelledMatch = async (
+  roundNumber: number,
+  matchId: string
+): Promise<void> => {
+  console.log(`Starting to restore cancelled match ${matchId} in round ${roundNumber}`);
+  
+  try {
+    const currentSeason = getCurrentSeason();
+    
+    // קבלת פרטי המשחק
+    const matchRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString(), 'matches', matchId);
+    const matchDoc = await getDoc(matchRef);
+    
+    if (!matchDoc.exists()) {
+      throw new Error('Match not found');
+    }
+    
+    // הסרת סימון הביטול מהמשחק
+    await updateDoc(matchRef, { 
+      isCancelled: false
+    });
+    
+    console.log(`Match ${matchId} restored from cancelled state`);
+  } catch (error) {
+    console.error('Error restoring cancelled match:', error);
     throw error;
   }
 };

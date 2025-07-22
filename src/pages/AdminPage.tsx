@@ -6,11 +6,10 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, Plus, Edit, Trash2, Calendar, Clock, Users, Settings, Trophy, Target, X, TrendingDown } from "lucide-react";
 import { Match, Round, Team, User, Player } from "@/types";
 import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc, writeBatch, getDoc, deleteField } from "firebase/firestore";
-import { Timestamp } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
 import { getCurrentSeason } from "@/lib/season";
-import { calculateRoundPoints, calculatePreSeasonPoints, deleteRoundPoints, recalculatePlayerPoints } from "@/lib/playerBets";
+import { calculateRoundPoints, calculatePreSeasonPoints, deleteRoundPoints, recalculatePlayerPoints, cancelMatch, restoreCancelledMatch } from "@/lib/playerBets";
 import TeamLogo from "@/components/TeamLogo";
 
 export default function AdminPage() {
@@ -20,7 +19,7 @@ export default function AdminPage() {
     const [teams, setTeams] = useState<Team[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'rounds' | 'matches' | 'results' | 'season' | 'users'>('rounds');
+    const [activeTab, setActiveTab] = useState<'rounds' | 'matches' | 'results' | 'cancellations' | 'season' | 'users'>('rounds');
     const [currentSeason, setCurrentSeason] = useState<string>('');
     const [editingRound, setEditingRound] = useState<number | null>(null);
     const [roundEditData, setRoundEditData] = useState({
@@ -404,7 +403,7 @@ export default function AdminPage() {
             const round = rounds.find(r => r.number === roundNumber);
             
             if (round && round.matchesDetails) {
-                // בדוק אם יש משחקים ללא תוצאה
+                // בדוק אם יש משחקים ללא תוצאה (רק לא מבוטלים)
                 const incompleteMatches = round.matchesDetails.filter(
                     m => !m.isCancelled && (m.actualHomeScore === undefined || m.actualHomeScore === null || m.actualAwayScore === undefined || m.actualAwayScore === null)
                 );
@@ -428,27 +427,17 @@ export default function AdminPage() {
                             isCancelled: deleteField()
                         });
                     }
-                }
-                
-                // חישוב נקודות (רק למשחקים לא מבוטלים)
-                console.log('About to calculate round points...');
+                }       
                 const calculationResult = await calculateRoundPoints(roundNumber);
-                
                 if (calculationResult.hasIncompleteMatches) {
                     const confirmMessage = `יש משחקים ללא תוצאות:\n${calculationResult.incompleteMatches.join('\n')}\n\nהאם אתה בטוח שברצונך להמשיך?`;
                     if (!confirm(confirmMessage)) {
                         setIsCalculatingPoints(false);
                         return;
                     }
-                }
-                
-                console.log('Round points calculated successfully');
-                
+                }                    
                 setEditingResults(null);
-                
-                // רענון הנתונים כדי להציג את הנקודות המעודכנות
                 await loadData();
-                
                 alert('התוצאות נשמרו והנקודות חושבו בהצלחה!');
             }
         } catch (error) {
@@ -545,21 +534,18 @@ export default function AdminPage() {
         ));
     };
 
-    // 2. ביטול משחק (isCancelled)
-    const handleCancelMatch = (roundNumber: number, matchId: string) => {
-        if (!window.confirm('האם אתה בטוח שברצונך לבטל משחק זה? לא יחושבו נקודות עבורו.')) return;
-        setRounds(prev => prev.map(round =>
-            round.number === roundNumber
-                ? {
-                    ...round,
-                    matchesDetails: (round.matchesDetails || []).map(match =>
-                        match.uid === matchId
-                            ? { ...match, isCancelled: true, actualHomeScore: null, actualAwayScore: null }
-                            : match
-                    )
-                }
-                : round
-        ));
+    // 2. ביטול משחק (isCancelled) - פונקציה חדשה
+    const handleCancelMatch = async (roundNumber: number, matchId: string) => {
+        if (!window.confirm('האם אתה בטוח שברצונך לבטל משחק זה? אם המשחק כבר חושב, הנקודות יורדו מהמשתמשים.')) return;
+        
+        try {
+            await cancelMatch(roundNumber, matchId);
+            await loadData(); // רענון הנתונים
+            alert('המשחק בוטל בהצלחה!');
+        } catch (error) {
+            console.error('Error cancelling match:', error);
+            alert('שגיאה בביטול המשחק. אנא נסה שוב.');
+        }
     };
 
     // איפוס תוצאות מחזור
@@ -586,12 +572,20 @@ export default function AdminPage() {
                 const roundBetsRef = doc(db, 'season', seasonId, 'playerBets', userDoc.id, 'roundBetsCollection', roundNumber.toString());
                 const roundBetsSnap = await getDoc(roundBetsRef);
                 let roundPointsToSubtract = 0;
+                let correctPredictionsToSubtract = 0;
+                let exactPredictionsToSubtract = 0;
+                
                 if (roundBetsSnap.exists()) {
                     const bets = roundBetsSnap.data().bets || [];
                     // אפס נקודות רק למשחקים של המחזור הזה
                     const updatedBets = bets.map((bet: any) => {
                         if (matchIds.includes(bet.matchId)) {
                             roundPointsToSubtract += bet.points || 0;
+                            if (bet.isExactResult) {
+                                exactPredictionsToSubtract += 1;
+                            } else if (bet.isCorrectDirection) {
+                                correctPredictionsToSubtract += 1;
+                            }
                             return {
                                 ...bet,
                                 points: 0,
@@ -603,35 +597,49 @@ export default function AdminPage() {
                     });
                     batch.update(roundBetsRef, { bets: updatedBets });
                 }
-                // אפס roundPoints במחזור הזה והפחת מה-totalPoints
-                if (playerBetsData.roundPoints && playerBetsData.roundPoints[roundNumber]) {
-                    const updatedRoundPoints = { ...playerBetsData.roundPoints };
+                
+                // עדכון הנקודות והסטטיסטיקות של המשתמש
+                const updatedRoundPoints = { ...(playerBetsData.roundPoints || {}) };
+                const updatedCorrectPredictionsMap = { ...(playerBetsData.correctPredictionsMap || {}) };
+                const updatedExactPredictionsMap = { ...(playerBetsData.exactPredictionsMap || {}) };
+                
+                // חסירת הנקודות של המחזור
+                if (updatedRoundPoints[roundNumber]) {
                     roundPointsToSubtract = updatedRoundPoints[roundNumber];
                     updatedRoundPoints[roundNumber] = 0;
-                    const newTotalPoints = (playerBetsData.totalPoints || 0) - (roundPointsToSubtract || 0);
-                    batch.update(userDoc.ref, {
-                        roundPoints: updatedRoundPoints,
-                        totalPoints: newTotalPoints < 0 ? 0 : newTotalPoints
-                    });
                 }
+                
+                // חסירת התחזיות המדויקות והכיוון של המחזור
+                const correctPredictionsFromMap = updatedCorrectPredictionsMap[roundNumber] || 0;
+                const exactPredictionsFromMap = updatedExactPredictionsMap[roundNumber] || 0;
+                delete updatedCorrectPredictionsMap[roundNumber];
+                delete updatedExactPredictionsMap[roundNumber];
+                
+                const newTotalPoints = (playerBetsData.totalPoints || 0) - roundPointsToSubtract;
+                const newCorrectPredictions = (playerBetsData.correctPredictions || 0) - correctPredictionsToSubtract - correctPredictionsFromMap;
+                const newExactPredictions = (playerBetsData.exactPredictions || 0) - exactPredictionsToSubtract - exactPredictionsFromMap;
+                
+                batch.update(userDoc.ref, {
+                    roundPoints: updatedRoundPoints,
+                    totalPoints: newTotalPoints < 0 ? 0 : newTotalPoints,
+                    correctPredictions: newCorrectPredictions < 0 ? 0 : newCorrectPredictions,
+                    exactPredictions: newExactPredictions < 0 ? 0 : newExactPredictions,
+                    correctPredictionsMap: updatedCorrectPredictionsMap,
+                    exactPredictionsMap: updatedExactPredictionsMap
+                });
             }
             await batch.commit();
             await loadData();
             alert('כל התוצאות והנקודות של המחזור אופסו בהצלחה!');
         } catch (error) {
+            console.error('Error resetting round results:', error);
             alert('שגיאה באיפוס התוצאות.');
         }
     };
 
-    // פונקציית איפוס קטגוריה בסיום עונה
-    const handleResetSeasonResult = (key: keyof typeof seasonResults) => {
-        if (!window.confirm('האם לאפס ערך זה?')) return;
-        setSeasonResults(prev => ({ ...prev, [key]: '' }));
-    };
-
     // כפתור איפוס כללי לסוף עונה
     const handleResetAllSeasonResults = async () => {
-        if (!window.confirm('האם לאפס את כל בחירות סוף העונה?')) return;
+        if (!window.confirm('האם לאפס את כל בחירות סוף העונה? זה יוריד את הנקודות מהימורים מקדימים מכל המשתמשים.')) return;
         try {
             const seasonRef = doc(db, 'season', currentSeason);
             await updateDoc(seasonRef, {
@@ -642,6 +650,27 @@ export default function AdminPage() {
                 topScorer: '',
                 topAssists: ''
             });
+            
+            // חסירת נקודות הימורים מקדימים מכל המשתמשים
+            const playerBetsSnap = await getDocs(collection(db, 'season', currentSeason, 'playerBets'));
+            const batch = writeBatch(db);
+            
+            for (const userDoc of playerBetsSnap.docs) {
+                const playerBetsData = userDoc.data();
+                const preSeasonPoints = playerBetsData.preSeasonPoints || 0;
+                const totalPoints = playerBetsData.totalPoints || 0;
+                
+                if (preSeasonPoints > 0) {
+                    const newTotalPoints = totalPoints - preSeasonPoints;
+                    batch.update(userDoc.ref, {
+                        preSeasonPoints: 0,
+                        totalPoints: newTotalPoints < 0 ? 0 : newTotalPoints
+                    });
+                }
+            }
+            
+            await batch.commit();
+            
             setSeasonResults({
                 champion: '',
                 cupWinner: '',
@@ -650,8 +679,11 @@ export default function AdminPage() {
                 topScorer: '',
                 topAssists: ''
             });
-            alert('כל בחירות סוף העונה אופסו בהצלחה!');
+            
+            await loadData();
+            alert('כל בחירות סוף העונה אופסו בהצלחה! הנקודות מהימורים מקדימים הורדו מכל המשתמשים.');
         } catch (error) {
+            console.error('Error resetting season results:', error);
             alert('שגיאה באיפוס בחירות סוף העונה.');
         }
     };
@@ -716,6 +748,14 @@ export default function AdminPage() {
                     >
                         <Target size={16} />
                         תוצאות
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={() => setActiveTab('cancellations')}
+                        className={`flex items-center gap-2 ${activeTab === 'cancellations' ? 'text-blue-700 font-bold' : ''}`}
+                    >
+                        <X size={16} />
+                        ביטול משחקים
                     </Button>
                     <Button
                         variant="outline"
@@ -1047,21 +1087,7 @@ export default function AdminPage() {
                                                     <div className="flex items-center gap-2">
                                                         {editingResults === round.number ? (
                                                             match.isCancelled ? (
-                                                                <>
-                                                                    <span className="text-red-600 font-bold mr-2">משחק זה בוטל</span>
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={async () => {
-                                                                            const matchRef = doc(db, 'season', currentSeason, 'rounds', round.number.toString(), 'matches', match.uid);
-                                                                            await updateDoc(matchRef, { isCancelled: deleteField() });
-                                                                            await loadData();
-                                                                        }}
-                                                                        className="text-green-600 hover:text-green-700 ml-2"
-                                                                    >
-                                                                        החזר משחק
-                                                                    </Button>
-                                                                </>
+                                                                <span className="text-red-600 font-bold mr-2">משחק זה בוטל</span>
                                                             ) : (
                                                                 <>
                                                                     <input
@@ -1105,14 +1131,7 @@ export default function AdminPage() {
                                                                             ));
                                                                         }}
                                                                     />
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() => handleCancelMatch(round.number, match.uid)}
-                                                                        className="text-red-600 hover:text-red-700 ml-2"
-                                                                    >
-                                                                        בטל משחק
-                                                                    </Button>
+
                                                                 </>
                                                             )
                                                         ) : (
@@ -1176,6 +1195,134 @@ export default function AdminPage() {
                                     </CardContent>
                                 </Card>
                             ))
+                        )}
+                    </div>
+                )}
+
+                {/* Match Cancellations Management */}
+                {activeTab === 'cancellations' && (
+                    <div className="space-y-4">
+                        <h2 className="text-xl font-semibold">ניהול ביטול משחקים</h2>
+                        <p className="text-gray-600 mb-4">
+                            כאן תוכל לבטל משחקים. אם המשחק כבר חושב ונקודות חושבו עבורו, הנקודות יורדו מהמשתמשים.
+                        </p>
+
+                        {rounds.length === 0 ? (
+                            <Card className="bg-white rounded-xl shadow-sm">
+                                <CardContent className="p-8 text-center">
+                                    <div className="mb-4">
+                                        <X size={48} className="mx-auto text-gray-400" />
+                                    </div>
+                                    <h3 className="text-lg font-medium text-gray-900 mb-2">אין מחזורים</h3>
+                                    <p className="text-gray-600">אין מחזורים זמינים לביטול משחקים</p>
+                                </CardContent>
+                            </Card>
+                        ) : (
+                            <div className="space-y-4">
+                                {rounds.map((round) => (
+                                    <Card key={round.number} className="bg-white rounded-xl shadow-sm">
+                                        <CardHeader>
+                                            <CardTitle>מחזור {round.number}</CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="space-y-3">
+                                                {(round.matchesDetails || []).map((match) => (
+                                                    <div
+                                                        key={match.uid}
+                                                        className={`flex items-center justify-between p-3 rounded-lg border ${
+                                                            match.isCancelled 
+                                                                ? 'bg-red-50 border-red-200 opacity-70' 
+                                                                : 'bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className="text-center flex-1">
+                                                                    <div className="flex items-center justify-center gap-2">
+                                                                        <TeamLogo teamId={match.homeTeamId} size="sm" />
+                                                                        <p className="font-medium">
+                                                                            {teams.find(t => t.uid === match.homeTeamId)?.name || match.homeTeam || 'קבוצה לא נבחרה'}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-center mx-4">
+                                                                    <div className="text-sm text-gray-600">נגד</div>
+                                                                </div>
+                                                                <div className="text-center flex-1">
+                                                                    <div className="flex items-center justify-center gap-2">
+                                                                        <p className="font-medium">
+                                                                            {teams.find(t => t.uid === match.awayTeamId)?.name || match.awayTeam || 'קבוצה לא נבחרה'}
+                                                                        </p>
+                                                                        <TeamLogo teamId={match.awayTeamId} size="sm" />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 ml-4">
+                                                            {match.isCancelled ? (
+                                                                <>
+                                                                    <span className="text-red-600 font-bold mr-2">משחק זה בוטל</span>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={async () => {
+                                                                            try {
+                                                                                await restoreCancelledMatch(round.number, match.uid);
+                                                                                await loadData();
+                                                                                alert('המשחק הוחזר בהצלחה!');
+                                                                            } catch (error) {
+                                                                                console.error('Error restoring match:', error);
+                                                                                alert('שגיאה בהחזרת המשחק. אנא נסה שוב.');
+                                                                            }
+                                                                        }}
+                                                                        className="text-green-600 hover:text-green-700"
+                                                                    >
+                                                                        החזר משחק
+                                                                    </Button>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <div className="text-center">
+                                                                        {(match.actualHomeScore !== undefined && match.actualHomeScore !== null) && 
+                                                                         (match.actualAwayScore !== undefined && match.actualAwayScore !== null) ? (
+                                                                            <div>
+                                                                                <p className="font-semibold">
+                                                                                    {match.actualHomeScore} - {match.actualAwayScore}
+                                                                                </p>
+                                                                                {match.pointsCalculated && (
+                                                                                    <p className="text-xs text-green-600">✓ חושבו נקודות</p>
+                                                                                )}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-gray-500">לא הוזן</p>
+                                                                        )}
+                                                                    </div>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => handleCancelMatch(round.number, match.uid)}
+                                                                        className="text-red-600 hover:text-red-700 ml-2"
+                                                                    >
+                                                                        בטל משחק
+                                                                    </Button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {(round.matchesDetails || []).length === 0 && (
+                                                    <div className="text-center py-6 text-gray-500">
+                                                        <div className="mb-2">
+                                                            <X size={24} className="mx-auto text-gray-400" />
+                                                        </div>
+                                                        <p className="font-medium">אין משחקים במחזור זה</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
                         )}
                     </div>
                 )}

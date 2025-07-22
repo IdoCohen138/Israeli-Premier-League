@@ -36,6 +36,7 @@ interface MatchInfo {
   awayTeam: string;
   actualHomeScore?: number;
   actualAwayScore?: number;
+  isCancelled?: boolean;
 }
 
 const AllUsersBetsPage: React.FC = () => {
@@ -124,6 +125,7 @@ const AllUsersBetsPage: React.FC = () => {
             awayTeam: data.awayTeam || '',
             actualHomeScore: data.actualHomeScore,
             actualAwayScore: data.actualAwayScore,
+            isCancelled: data.isCancelled || false,
           };
         });
         setMatchesMap(matchesMapLocal);
@@ -247,7 +249,7 @@ const AllUsersBetsPage: React.FC = () => {
                 <div className="flex flex-wrap gap-4 items-center justify-center mb-4 text-xs">
                   <div className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-green-200 border border-green-400"></span> פגיעה מדויקת</div>
                   <div className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-yellow-200 border border-yellow-400"></span> פגיעה בכיוון</div>
-                  <div className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-purple-200 border border-purple-400"></span> בלעדיות (היחיד שפגע)</div>
+                  <div className="flex items-center gap-1"><span className="text-purple-600 text-lg">★</span> בלעדיות (היחיד שפגע)</div>
                   <div className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gray-100 border border-gray-300"></span> לא פגע</div>
                 </div>
                 <div className="overflow-x-auto">
@@ -267,16 +269,20 @@ const AllUsersBetsPage: React.FC = () => {
                         const betsForMatch = users.map(user => (betsByUser[user.uid]?.find(bet => bet.matchId === matchId)));
                         // מצא את התוצאה האמיתית (אם יש)
                         // (אין לנו כאן את התוצאה בפועל, אז נניח שהשדה points קיים רק אם חושב)
-                        // נחשב מי פגע מדויק/כיוון
-                        const exactUsers = users.filter((user, idx) => betsForMatch[idx]?.isExactResult);
-                        const directionUsers = users.filter((user, idx) => betsForMatch[idx]?.isCorrectDirection && !betsForMatch[idx]?.isExactResult);
                         return (
-                          <tr key={matchId} className={matchIdx % 2 === 0 ? 'bg-blue-50' : 'bg-white'}>
+                          <tr key={matchId} className={`${matchIdx % 2 === 0 ? 'bg-blue-50' : 'bg-white'} ${matchInfo.isCancelled ? 'opacity-70' : ''}`}>
                             <td className="p-3 border-b font-bold text-gray-800 text-center align-top w-40">
-                              {matchInfo.homeTeam} - {matchInfo.awayTeam}
+                              <div className="flex flex-col items-center">
+                                <span>{matchInfo.homeTeam} - {matchInfo.awayTeam}</span>
+                                {matchInfo.isCancelled && (
+                                  <span className="text-red-600 text-xs font-bold mt-1">משחק בוטל</span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-3 border-b text-center align-middle font-bold">
-                              {(typeof matchInfo.actualHomeScore === 'number' && typeof matchInfo.actualAwayScore === 'number')
+                              {matchInfo.isCancelled ? (
+                                <span className="text-red-600 font-bold">בוטל</span>
+                              ) : (typeof matchInfo.actualHomeScore === 'number' && typeof matchInfo.actualAwayScore === 'number')
                                 ? `${matchInfo.actualHomeScore} - ${matchInfo.actualAwayScore}`
                                 : <span className="text-gray-400">—</span>}
                             </td>
@@ -285,32 +291,66 @@ const AllUsersBetsPage: React.FC = () => {
                               let bg = 'bg-gray-100 border border-gray-300';
                               let text = 'text-gray-800';
                               let bonusIcon = null;
-                              // בלעדיות מדויק
-                              if (bet?.isExactResult && exactUsers.length === 1) {
-                                bg = 'bg-purple-200 border border-purple-400';
-                                text = 'text-purple-900 font-bold';
-                                bonusIcon = <span title="בונוס בלעדיות" className="ml-1">★</span>;
-                              } else if (bet?.isExactResult) {
-                                bg = 'bg-green-200 border border-green-400';
-                                text = 'text-green-900 font-bold';
-                              } else if (bet?.isCorrectDirection && directionUsers.length === 1) {
-                                bg = 'bg-purple-200 border border-purple-400';
-                                text = 'text-purple-900 font-bold';
-                                bonusIcon = <span title="בונוס בלעדיות" className="ml-1">★</span>;
-                              } else if (bet?.isCorrectDirection) {
-                                bg = 'bg-yellow-200 border border-yellow-400';
-                                text = 'text-yellow-900 font-bold';
+                              
+                              // אם המשחק בוטל, לא מציגים צבעים מיוחדים
+                              if (!matchInfo.isCancelled && bet?.points !== undefined) {
+                                // בלעדיות - 6 נקודות (תוצאה מדויקת + בלעדיות) או 2 נקודות (כיוון נכון + בלעדיות)
+                                if (bet.points === 6) {
+                                  bg = 'bg-green-200 border border-green-400';
+                                  text = 'text-green-900 font-bold';
+                                  bonusIcon = <span title="בונוס בלעדיות" className="ml-1 text-purple-600">★</span>;
+                                } 
+                                else if (bet.points === 3) {
+                                  bg = 'bg-green-200 border border-green-400';
+                                  text = 'text-green-900 font-bold';
+                                } 
+                                else if (bet.points === 2) {
+                                  bg = 'bg-yellow-200 border border-yellow-400';
+                                  text = 'text-yellow-900 font-bold';
+                                  bonusIcon = <span title="בונוס בלעדיות" className="ml-1 text-purple-600">★</span>;
+                                }
+                                // כיוון נכון ללא בלעדיות - 1 נקודה
+                                else if (bet.points === 1) {
+                                  bg = 'bg-yellow-200 border border-yellow-400';
+                                  text = 'text-yellow-900 font-bold';
+                                }
+                                // לא נכון - 0 נקודות
+                                else {
+                                  bg = 'bg-gray-100 border border-gray-300';
+                                  text = 'text-gray-800';
+                                }
                               }
                               return (
-                                <td key={user.uid} className={`p-3 border-b text-center align-middle ${bg} ${text} relative`}>
-                                  {bet ? (
+                                <td key={user.uid} className={`p-3 border-b text-center align-middle ${bg} ${text} relative ${matchInfo.isCancelled ? 'opacity-70' : ''}`}>
+                                  {matchInfo.isCancelled ? (
+                                    <div className="flex flex-col items-center">
+                                      <span className="text-red-600 font-bold text-sm">בוטל</span>
+                                      {bet && (
+                                        <span className="text-gray-500 text-xs mt-1">
+                                          {bet.homeScore} - {bet.awayScore}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : bet ? (
                                     <>
                                       <div className="flex items-center justify-center gap-1">
                                         {bonusIcon}
                                         <span>{bet.homeScore} - {bet.awayScore}</span>
                                       </div>
                                       {(typeof matchesMap[matchId]?.actualHomeScore === 'number' && typeof matchesMap[matchId]?.actualAwayScore === 'number') ? (
-                                          <div className="text-[10px] text-gray-700 mt-1">{bet.points ?? 0} נק'</div>
+                                          <div className={`text-[10px] mt-1 px-2 py-1 rounded-full font-bold ${
+                                            (bet.points ?? 0) === 6
+                                              ? 'bg-green-200 text-green-800' 
+                                              : (bet.points ?? 0) === 3
+                                                ? 'bg-green-200 text-green-800' 
+                                                : (bet.points ?? 0) === 2
+                                                  ? 'bg-yellow-200 text-yellow-800' 
+                                                  : (bet.points ?? 0) === 1
+                                                    ? 'bg-yellow-200 text-yellow-800' 
+                                                    : 'text-gray-500'
+                                          }`}>
+                                            {bet.points ?? 0} נק'
+                                          </div>
                                       ) : null}
                                     </>
                                   ) : (

@@ -298,14 +298,18 @@ export default function LeaderboardPage() {
                         <CardContent>
                             <div className="overflow-x-auto">
                                 <table className="w-full">
-                                    <thead>
-                                        <tr className="border-b">
-                                            <th className="text-right py-3 px-4 font-semibold">מחזור</th>
-                                            {leaderboard.map(entry => (
-                                                <th key={entry.uid} className="text-right py-3 px-4 font-semibold">{entry.displayName || 'שחקן אנונימי'}</th>
-                                            ))}
-                                        </tr>
-                                    </thead>
+                                                                    <thead>
+                                    <tr className="border-b">
+                                        <th className="text-right py-3 px-4 font-semibold text-center w-20">מחזור</th>
+                                        {leaderboard.map(entry => (
+                                            <th key={entry.uid} className="text-center py-3 px-2 font-semibold text-xs min-w-0">
+                                                <div className="truncate" title={entry.displayName || 'שחקן אנונימי'}>
+                                                    {entry.displayName || 'שחקן אנונימי'}
+                                                </div>
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
                                     <tbody>
                                         {(() => {
                                             // מצא את כל המחזורים שהופיעו אצל כל המשתמשים
@@ -313,9 +317,9 @@ export default function LeaderboardPage() {
                                             const maxRound = allRounds.length > 0 ? Math.max(...allRounds) : 0;
                                             return Array.from({ length: maxRound }, (_, i) => i + 1).map((round) => (
                                                 <tr key={round} className={round % 2 === 0 ? 'bg-blue-50' : 'bg-white'}>
-                                                    <td className="py-3 px-4 font-bold text-blue-900">מחזור {round}</td>
+                                                    <td className="py-3 px-4 font-bold text-blue-900 text-center w-20">מחזור {round}</td>
                                                     {leaderboard.map(entry => (
-                                                        <td key={entry.uid} className="py-3 px-4 text-center font-medium text-blue-700">
+                                                        <td key={entry.uid} className="py-3 px-2 text-center font-medium text-blue-700 min-w-0">
                                                             {(entry.roundPoints && entry.roundPoints[round]) !== undefined ? entry.roundPoints[round] : 0}
                                                         </td>
                                                     ))}
