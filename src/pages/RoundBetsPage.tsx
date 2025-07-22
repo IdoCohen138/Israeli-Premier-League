@@ -133,13 +133,13 @@ export default function RoundBetsPage() {
     };
 
     const handlePrevRound = () => {
-        if (currentRoundNumber && minRoundNumber && currentRoundNumber > minRoundNumber) {
-            loadRoundData(currentRoundNumber - 1);
+        if (currentRoundNumber && maxRoundNumber && currentRoundNumber < maxRoundNumber) {
+            loadRoundData(currentRoundNumber + 1);
         }
     };
     const handleNextRound = () => {
-        if (currentRoundNumber && maxRoundNumber && currentRoundNumber < maxRoundNumber) {
-            loadRoundData(currentRoundNumber + 1);
+        if (currentRoundNumber && minRoundNumber && currentRoundNumber > minRoundNumber) {
+            loadRoundData(currentRoundNumber - 1);
         }
     };
 
@@ -317,19 +317,19 @@ export default function RoundBetsPage() {
                             <div className="flex items-center gap-2">
                                 <Button
                                     variant="outline"
-                                    onClick={handlePrevRound}
+                                    onClick={handleNextRound}
                                     disabled={!minRoundNumber || currentRoundNumber === minRoundNumber}
                                     className="text-blue-600 hover:text-blue-700"
                                 >
-                                    <ChevronLeft size={16} />
+                                    <ChevronRight size={16} />
                                 </Button>
                                 <Button
                                     variant="outline"
-                                    onClick={handleNextRound}
+                                    onClick={handlePrevRound}
                                     disabled={!maxRoundNumber || currentRoundNumber === maxRoundNumber}
                                     className="text-blue-600 hover:text-blue-700"
                                 >
-                                    <ChevronRight size={16} />
+                                    <ChevronLeft size={16} />
                                 </Button>
                             </div>
                         </div>
