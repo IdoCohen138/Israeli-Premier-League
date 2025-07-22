@@ -297,7 +297,7 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
     
     // בדיקת משחקים ללא תוצאות (רק לא מבוטלים)
     const incompleteMatches = matches.filter(match => 
-      !match.isCancelled && (match.actualHomeScore === undefined || match.actualAwayScore === undefined)
+      !match.isCancelled && (match.actualHomeScore === undefined || match.actualHomeScore === null || match.actualAwayScore === undefined || match.actualAwayScore === null)
     );
     
     if (incompleteMatches.length > 0) {
@@ -396,7 +396,7 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
         continue;
       }
       // וידוא שיש תוצאות למשחק (אחרי הבדיקה למעלה זה אמור להיות בטוח)
-      if (match.actualHomeScore === undefined || match.actualAwayScore === undefined) {
+      if (match.actualHomeScore === undefined || match.actualHomeScore === null || match.actualAwayScore === undefined || match.actualAwayScore === null) {
         console.warn(`Match ${match.uid} still has no results, skipping...`);
         continue;
       }
@@ -752,7 +752,7 @@ export const recalculatePlayerPoints = async (userId: string): Promise<void> => 
         
         for (const bet of userBets as Bet[]) {
           const match = matches.find(m => m.uid === bet.matchId);
-          if (match && !match.isCancelled && match.actualHomeScore !== undefined && match.actualAwayScore !== undefined) {
+          if (match && !match.isCancelled && match.actualHomeScore !== undefined && match.actualHomeScore !== null && match.actualAwayScore !== undefined && match.actualAwayScore !== null) {
             const actualResult = match.actualHomeScore > match.actualAwayScore ? 'home' : 
                                match.actualHomeScore < match.actualAwayScore ? 'away' : 'draw';
             const betResult = bet.homeScore > bet.awayScore ? 'home' : 
