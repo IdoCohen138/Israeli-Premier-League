@@ -17,12 +17,36 @@ export default function LeaderboardPage() {
     const [userRank, setUserRank] = useState<number | null>(null);
     const [currentSeason, setCurrentSeason] = useState<string>('');
     const [showPreSeasonColumn, setShowPreSeasonColumn] = useState(false);
+    const [roundNames, setRoundNames] = useState<Record<number, string>>({});
 
     useEffect(() => {
         setCurrentSeason(getCurrentSeason());
         loadLeaderboard();
         checkPreSeasonPointsCalculated();
+        loadRoundNames();
     }, []);
+
+    const loadRoundNames = async () => {
+        try {
+            const { getDocs, collection } = await import('firebase/firestore');
+            const { db } = await import('@/lib/firebase');
+            const { getSeasonPath } = await import('@/lib/season');
+            
+            const seasonPath = getSeasonPath();
+            const roundsSnapshot = await getDocs(collection(db, seasonPath, 'rounds'));
+            const names: Record<number, string> = {};
+            
+            roundsSnapshot.docs.forEach(doc => {
+                const roundNumber = parseInt(doc.id);
+                const data = doc.data();
+                names[roundNumber] = data.name || `מחזור ${roundNumber}`;
+            });
+            
+            setRoundNames(names);
+        } catch (error) {
+            console.error('Error loading round names:', error);
+        }
+    };
 
     const loadLeaderboard = async () => {
         try {
@@ -260,10 +284,20 @@ export default function LeaderboardPage() {
                                                 </span>
                                             </td>
                                             <td className="py-3 px-4">
-                                                <span className="text-gray-600">{entry.correctPredictions || 0}</span>
+                                                <span className="text-gray-600">
+                                                    {(() => {
+                                                        if (!entry.correctPredictionsMap) return 0;
+                                                        return Object.values(entry.correctPredictionsMap).reduce((sum, count) => sum + count, 0);
+                                                    })()}
+                                                </span>
                                             </td>
                                             <td className="py-3 px-4">
-                                                <span className="text-purple-600 font-medium">{entry.exactPredictions || 0}</span>
+                                                <span className="text-purple-600 font-medium">
+                                                    {(() => {
+                                                        if (!entry.exactPredictionsMap) return 0;
+                                                        return Object.values(entry.exactPredictionsMap).reduce((sum, count) => sum + count, 0);
+                                                    })()}
+                                                </span>
                                             </td>
                                         </tr>
                                     ))}
@@ -300,7 +334,7 @@ export default function LeaderboardPage() {
                                 <table className="w-full">
                                                                     <thead>
                                     <tr className="border-b">
-                                        <th className="text-right py-3 px-4 font-semibold text-center w-20">מחזור</th>
+                                        <th className="text-right py-3 px-4 font-semibold text-center w-64 text-xs">מחזור</th>
                                         {leaderboard.map(entry => (
                                             <th key={entry.uid} className="text-center py-3 px-2 font-semibold text-xs min-w-0">
                                                 <div className="truncate" title={entry.displayName || 'שחקן אנונימי'}>
@@ -317,7 +351,7 @@ export default function LeaderboardPage() {
                                             const maxRound = allRounds.length > 0 ? Math.max(...allRounds) : 0;
                                             return Array.from({ length: maxRound }, (_, i) => i + 1).map((round) => (
                                                 <tr key={round} className={round % 2 === 0 ? 'bg-blue-50' : 'bg-white'}>
-                                                    <td className="py-3 px-4 font-bold text-blue-900 text-center w-20">מחזור {round}</td>
+                                                    <td className="py-3 px-4 font-bold text-blue-900 text-center w-64 text-xs whitespace-nowrap">{roundNames[round] || `מחזור ${round}`}</td>
                                                     {leaderboard.map(entry => (
                                                         <td key={entry.uid} className="py-3 px-2 text-center font-medium text-blue-700 min-w-0">
                                                             {(entry.roundPoints && entry.roundPoints[round]) !== undefined ? entry.roundPoints[round] : 0}

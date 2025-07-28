@@ -23,7 +23,8 @@ export default function AdminPage() {
     const [currentSeason, setCurrentSeason] = useState<string>('');
     const [editingRound, setEditingRound] = useState<number | null>(null);
     const [roundEditData, setRoundEditData] = useState({
-        startTime: ''
+        startTime: '',
+        name: ''
     });
     const [editingResults, setEditingResults] = useState<number | null>(null);
 
@@ -171,6 +172,7 @@ export default function AdminPage() {
             // יצירת המחזור
             const newRound: Round = {
                 number: newRoundNumber,
+                name: `מחזור ${newRoundNumber}`,
                 matches: [],
                 startTime: new Date().toISOString().slice(0, 16),
                 isActive: false,
@@ -350,7 +352,8 @@ export default function AdminPage() {
     const handleEditRound = (round: Round) => {
         setEditingRound(round.number);
         setRoundEditData({
-            startTime: round.startTime || ''
+            startTime: round.startTime || '',
+            name: round.name || `מחזור ${round.number}`
         });
     };
 
@@ -360,7 +363,8 @@ export default function AdminPage() {
         try {
             const roundRef = doc(db, 'season', currentSeason, 'rounds', editingRound.toString());
             await updateDoc(roundRef, {
-                startTime: roundEditData.startTime
+                startTime: roundEditData.startTime,
+                name: roundEditData.name
             });
 
             // עדכון ה-state
@@ -368,27 +372,28 @@ export default function AdminPage() {
                 round.number === editingRound 
                     ? { 
                         ...round, 
-                        startTime: roundEditData.startTime
+                        startTime: roundEditData.startTime,
+                        name: roundEditData.name
                     }
                     : round
             ));
 
             setEditingRound(null);
-            setRoundEditData({ startTime: '' });
+            setRoundEditData({ startTime: '', name: '' });
             
             // רענון הנתונים כדי לוודא שהשינויים נשמרו
             await loadData();
             
-            alert('שעת הנעילה עודכנה בהצלחה!');
+            alert('פרטי המחזור עודכנו בהצלחה!');
         } catch (error) {
             console.error('Error updating round:', error);
-            alert('שגיאה בעדכון שעת הנעילה. אנא נסה שוב.');
+            alert('שגיאה בעדכון פרטי המחזור. אנא נסה שוב.');
         }
     };
 
     const handleCancelEdit = () => {
         setEditingRound(null);
-        setRoundEditData({ startTime: '' });
+        setRoundEditData({ startTime: '', name: '' });
     };
 
     const handleEditResults = (roundNumber: number) => {
@@ -606,7 +611,7 @@ export default function AdminPage() {
                 // חסירת הנקודות של המחזור
                 if (updatedRoundPoints[roundNumber]) {
                     roundPointsToSubtract = updatedRoundPoints[roundNumber];
-                    updatedRoundPoints[roundNumber] = 0;
+                    delete updatedRoundPoints[roundNumber];
                 }
                 
                 // חסירת התחזיות המדויקות והכיוון של המחזור
@@ -811,7 +816,7 @@ export default function AdminPage() {
                                     <Card key={round.number} className="bg-white rounded-xl shadow-sm">
                                         <CardHeader>
                                             <CardTitle className="flex items-center justify-between">
-                                                <span>מחזור {round.number}</span>
+                                                <span>{round.name || `מחזור ${round.number}`}</span>
                                                 <div className="flex gap-1">
                                                     <Button
                                                         variant="ghost"
@@ -845,6 +850,18 @@ export default function AdminPage() {
                                         <CardContent className="space-y-3">
                                             {editingRound === round.number ? (
                                                 <div className="space-y-3">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                            שם המחזור
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            value={roundEditData.name}
+                                                            onChange={(e) => setRoundEditData(prev => ({ ...prev, name: e.target.value }))}
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                                            placeholder="למשל: מחזור 1 - עונה סדירהפתיחה, מחזור 1 - פלייאוף עליון וכו'"
+                                                        />
+                                                    </div>
                                                     <div>
                                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                                             תאריך ושעת תחילת מחזור (וגם סגירת הימורים)
@@ -1028,7 +1045,7 @@ export default function AdminPage() {
                                 <Card key={round.number} className="bg-white rounded-xl shadow-sm">
                                     <CardHeader>
                                         <CardTitle className="flex items-center justify-between">
-                                            <span>מחזור {round.number}</span>
+                                            <span>{round.name || `מחזור ${round.number}`}</span>
                                             <div className="flex items-center gap-2">
                                                 <Button
                                                     variant="outline"
@@ -1222,7 +1239,7 @@ export default function AdminPage() {
                                 {rounds.map((round) => (
                                     <Card key={round.number} className="bg-white rounded-xl shadow-sm">
                                         <CardHeader>
-                                            <CardTitle>מחזור {round.number}</CardTitle>
+                                            <CardTitle>{round.name || `מחזור ${round.number}`}</CardTitle>
                                         </CardHeader>
                                         <CardContent>
                                             <div className="space-y-3">

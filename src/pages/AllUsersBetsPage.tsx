@@ -41,7 +41,7 @@ interface MatchInfo {
 
 const AllUsersBetsPage: React.FC = () => {
   const [users, setUsers] = useState<UserInfo[]>([]);
-  const [rounds, setRounds] = useState<{ number: number; startTime: string }[]>([]);
+  const [rounds, setRounds] = useState<{ number: number; startTime: string; name?: string }[]>([]);
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
   const [currentRound, setCurrentRound] = useState<number | null>(null);
   const [betsByUser, setBetsByUser] = useState<Record<string, Bet[]>>({});
@@ -73,7 +73,8 @@ const AllUsersBetsPage: React.FC = () => {
       const roundsSnap = await getDocs(collection(db, seasonPath, 'rounds'));
       const roundsList = roundsSnap.docs.map(doc => ({
         number: parseInt(doc.id),
-        startTime: doc.data().startTime || ''
+        startTime: doc.data().startTime || '',
+        name: doc.data().name || `מחזור ${parseInt(doc.id)}`
       })).sort((a, b) => a.number - b.number);
       setRounds(roundsList);
 
@@ -267,12 +268,12 @@ const AllUsersBetsPage: React.FC = () => {
               <label htmlFor="round-select" className="font-semibold text-lg text-gray-700">בחר מחזור:</label>
               <select
                 id="round-select"
-                className="border-2 border-blue-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-400 transition w-40 text-center text-lg bg-blue-50 hover:bg-blue-100"
+                className="border-2 border-blue-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-400 transition w-64 text-center text-lg bg-blue-50 hover:bg-blue-100"
                 value={selectedRound ?? ''}
                 onChange={e => setSelectedRound(Number(e.target.value))}
               >
                 {rounds.map(r => (
-                  <option key={r.number} value={r.number}>מחזור {r.number}</option>
+                  <option key={r.number} value={r.number}>{r.name || `מחזור ${r.number}`}</option>
                 ))}
               </select>
             </div>
@@ -325,7 +326,7 @@ const AllUsersBetsPage: React.FC = () => {
                             <span className="text-blue-800 font-semibold text-lg">חלון הימורים פתוח</span>
                           </div>
                           <p className="text-blue-700">
-                            ההימורים יוצגו כאשר יסגר חלון ההזדמנויות להימורים למחזור {selectedRound}
+                            ההימורים יוצגו כאשר יסגר חלון ההזדמנויות להימורים ל{rounds.find(r => r.number === selectedRound)?.name || `מחזור ${selectedRound}`}
                           </p>
                         </div>
                       )}
@@ -355,7 +356,7 @@ const AllUsersBetsPage: React.FC = () => {
                             <span className="text-blue-800 font-semibold text-lg">חלון הימורים פתוח</span>
                           </div>
                           <p className="text-blue-700">
-                            ההימורים יוצגו כאשר יסגר חלון ההזדמנויות להימורים למחזור {selectedRound}
+                            ההימורים יוצגו כאשר יסגר חלון ההזדמנויות להימורים ל{rounds.find(r => r.number === selectedRound)?.name || `מחזור ${selectedRound}`}
                           </p>
                         </div>
                       )}

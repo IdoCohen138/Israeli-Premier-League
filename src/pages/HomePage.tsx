@@ -12,6 +12,7 @@ export default function HomePage() {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const [currentRoundNumber, setCurrentRoundNumber] = useState<number | null>(null);
+    const [currentRoundName, setCurrentRoundName] = useState<string>('');
     const [nextRoundTime, setNextRoundTime] = useState<string>('');
     const [loading, setLoading] = useState(true);
 
@@ -23,6 +24,19 @@ export default function HomePage() {
         try {
             const round = await getCurrentRound();
             setCurrentRoundNumber(round);
+            
+            // טעינת שם המחזור הנוכחי
+            if (round) {
+                const seasonPath = getSeasonPath();
+                const roundDoc = await getDocs(collection(db, seasonPath, 'rounds'));
+                const roundData = roundDoc.docs.find(doc => parseInt(doc.id) === round);
+                if (roundData) {
+                    const data = roundData.data();
+                    setCurrentRoundName(data.name || `מחזור ${round}`);
+                } else {
+                    setCurrentRoundName(`מחזור ${round}`);
+                }
+            }
             
             // טעינת זמן המחזור הבא
             if (round) {
@@ -155,8 +169,8 @@ export default function HomePage() {
                     <Card className="bg-white rounded-xl shadow-sm">
                         <CardContent className="p-4 text-center space-y-2">
                             <p className="text-xs sm:text-sm text-gray-600">מחזור נוכחי</p>
-                            <p className="text-xl sm:text-2xl font-bold text-blue-600">
-                                {loading ? '...' : (currentRoundNumber || 'אין')}
+                            <p className="text-lg sm:text-xl font-bold text-blue-600">
+                                {loading ? '...' : (currentRoundName || currentRoundNumber || 'אין')}
                             </p>
                         </CardContent>
                     </Card>

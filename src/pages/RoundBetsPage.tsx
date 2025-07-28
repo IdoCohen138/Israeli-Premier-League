@@ -93,6 +93,7 @@ export default function RoundBetsPage() {
                 })) as Match[];
                 const roundData: Round = {
                     number: roundNumber,
+                    name: data.name || `מחזור ${roundNumber}`,
                     matches: matches.map(m => m.uid),
                     matchesDetails: matches,
                     startTime: data.startTime || '',
@@ -312,7 +313,7 @@ export default function RoundBetsPage() {
                         <div className="flex items-center justify-between">
                             <CardTitle className="flex items-center gap-2">
                                 <Calendar className="h-5 w-5" />
-                                מחזור {currentRoundNumber}
+                                {currentRound?.name || `מחזור ${currentRoundNumber}`}
                             </CardTitle>
                             <div className="flex items-center gap-2">
                                 <Button
@@ -349,7 +350,7 @@ export default function RoundBetsPage() {
                                         <>
                                             <Clock className="h-5 w-5 text-green-600" />
                                             <div>
-                                                <h3 className="font-semibold text-green-900">מחזור {currentRound.number} - הימורים פעילים</h3>
+                                                <h3 className="font-semibold text-green-900">{currentRound.name || `מחזור ${currentRound.number}`} - הימורים פעילים</h3>
                                                 <p className="text-sm text-green-800">
                                                     נותרו {timeRemaining} עד סגירת ההימורים
                                                 </p>
@@ -359,7 +360,7 @@ export default function RoundBetsPage() {
                                         <>
                                             <Clock className="h-5 w-5 text-red-600" />
                                             <div>
-                                                <h3 className="font-semibold text-red-900">מחזור {currentRound.number} - תקופת ההימורים הסתיימה</h3>
+                                                <h3 className="font-semibold text-red-900">{currentRound.name || `מחזור ${currentRound.number}`} - תקופת ההימורים הסתיימה</h3>
                                                 <p className="text-sm text-red-800">
                                                     לא ניתן לשנות או להוסיף הימורים יותר
                                                 </p>
@@ -384,7 +385,7 @@ export default function RoundBetsPage() {
                         <CardContent className="p-4">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <h3 className="font-semibold text-blue-900">מחזור {currentRound.number}</h3>
+                                    <h3 className="font-semibold text-blue-900">{currentRound.name || `מחזור ${currentRound.number}`}</h3>
                                     <p className="text-sm text-blue-700">
                                         שעת נעילה לא נקבעה
                                     </p>

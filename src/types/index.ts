@@ -38,6 +38,7 @@ export interface Match {
 
 export interface Round {
   number: number;
+  name?: string; // שם המחזור
   matches: string[]; // מערך של UIDs
   matchesDetails?: Match[]; // פרטי המשחקים המלאים
   startTime: string;
