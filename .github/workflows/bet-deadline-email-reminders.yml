@@ -2,8 +2,8 @@ name: Bet deadline email reminders
 
 on:
   schedule:
-    # Every 15 minutes (UTC)
-    - cron: '*/15 * * * *'
+    # Every ~15 minutes (UTC), offset from round minutes
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:
