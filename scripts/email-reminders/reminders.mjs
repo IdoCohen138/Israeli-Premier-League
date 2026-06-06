@@ -247,7 +247,12 @@ async function sendReminderToSubscriber(subscriber, reminder, { appUrl, msUntil,
 
 export async function processBetDeadlineReminders() {
   const appUrl = process.env.APP_URL ?? 'https://israeli-premier-league.web.app';
+  const emailFrom = process.env.EMAIL_FROM ?? 'ניחושים ליגת העל <onboarding@resend.dev>';
   const dryRun = isDryRunEnv();
+
+  console.log('EMAIL_FROM =', emailFrom);
+  console.log('APP_URL =', appUrl);
+  console.log('RESEND_API_KEY set:', Boolean(process.env.RESEND_API_KEY));
 
   if (dryRun) {
     console.log('DRY RUN - no emails sent');
