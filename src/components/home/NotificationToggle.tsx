@@ -49,8 +49,13 @@ export default function NotificationToggle() {
           <div className="min-w-0 flex-1">
             <p className="home-notifications-title">תזכורות באימייל</p>
             <p className="home-notifications-desc">
-              24 שעות ושעה אחת לפני הימור ישלח מייל תזכורת ל-
+              לפני סגירת הימורי מחזור או הימורים מקדימים יישלחו 2 תזכורות:
             </p>
+            <ul className="home-notifications-timing">
+              <li>בערך יום מראש</li>
+              <li>ובטווח של כשעה מראש</li>
+            </ul>
+            <p className="home-notifications-email-label">לכתובת</p>
             <p className="home-notifications-email">{user.email}</p>
           </div>
         </div>

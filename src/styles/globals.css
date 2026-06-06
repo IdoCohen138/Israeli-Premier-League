@@ -415,6 +415,18 @@
     @apply mt-0.5 text-[11px] leading-snug text-muted-foreground;
   }
 
+  .home-notifications-timing {
+    @apply mt-1.5 list-none space-y-0.5 pr-0 text-[11px] leading-snug text-foreground/90;
+  }
+
+  .home-notifications-timing li {
+    @apply relative pr-3.5 before:absolute before:right-0 before:top-[0.45em] before:h-1 before:w-1 before:rounded-full before:bg-sky-500/70;
+  }
+
+  .home-notifications-email-label {
+    @apply mt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+
   .home-notifications-email {
     @apply mt-0.5 truncate text-[11px] font-medium leading-snug text-foreground;
   }
