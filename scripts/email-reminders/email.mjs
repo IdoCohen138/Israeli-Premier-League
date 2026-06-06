@@ -4,7 +4,7 @@ export async function sendEmail({ to, subject, html }) {
 
   if (!apiKey) {
     console.warn('RESEND_API_KEY is not set — skipping email to', to);
-    return false;
+    return { ok: false };
   }
 
   const response = await fetch('https://api.resend.com/emails', {
@@ -18,8 +18,16 @@ export async function sendEmail({ to, subject, html }) {
 
   if (!response.ok) {
     console.error('Failed to send email:', await response.text());
-    return false;
+    return { ok: false };
   }
 
-  return true;
+  let providerMessageId;
+  try {
+    const data = await response.json();
+    providerMessageId = typeof data?.id === 'string' ? data.id : undefined;
+  } catch {
+    providerMessageId = undefined;
+  }
+
+  return { ok: true, providerMessageId };
 }

@@ -1,20 +1,32 @@
-const MS_24H = 24 * 60 * 60 * 1000;
-const MS_1H = 60 * 60 * 1000;
-const ONE_H_CATCHUP_MS = 90 * 60 * 1000;
-const TWENTY_FOUR_H_CATCHUP_MS = MS_24H + 60 * 60 * 1000;
+const MS_MINUTE = 60 * 1000;
+const MS_HOUR = 60 * MS_MINUTE;
+
+/** 23:30 < msUntil <= 24:45 */
+export const TWENTY_FOUR_H_WINDOW_MIN_MS = 23 * MS_HOUR + 30 * MS_MINUTE;
+export const TWENTY_FOUR_H_WINDOW_MAX_MS = 24 * MS_HOUR + 45 * MS_MINUTE;
+
+/** 45 min < msUntil <= 75 min */
+export const ONE_H_WINDOW_MIN_MS = 45 * MS_MINUTE;
+export const ONE_H_WINDOW_MAX_MS = 75 * MS_MINUTE;
 
 /**
- * Returns which reminder is due now.
- * Uses wider catch-up bands so a missed 15-min cron tick still sends once (idempotency prevents duplicates).
+ * Returns reminder bucket for idempotency (24h / 1h).
+ * Email body/subject still use actual msUntil at send time.
  */
 export function getReminderWindow(msUntilDeadline) {
   if (msUntilDeadline <= 0) return null;
 
-  if (msUntilDeadline <= ONE_H_CATCHUP_MS) {
+  if (
+    msUntilDeadline > ONE_H_WINDOW_MIN_MS &&
+    msUntilDeadline <= ONE_H_WINDOW_MAX_MS
+  ) {
     return '1h';
   }
 
-  if (msUntilDeadline <= TWENTY_FOUR_H_CATCHUP_MS) {
+  if (
+    msUntilDeadline > TWENTY_FOUR_H_WINDOW_MIN_MS &&
+    msUntilDeadline <= TWENTY_FOUR_H_WINDOW_MAX_MS
+  ) {
     return '24h';
   }
 
@@ -23,7 +35,7 @@ export function getReminderWindow(msUntilDeadline) {
 
 export function describeReminderWindows() {
   return {
-    '1h': `0 – ${ONE_H_CATCHUP_MS / 60000} minutes before close`,
-    '24h': `${MS_1H / 3600000}h – ${TWENTY_FOUR_H_CATCHUP_MS / 3600000}h before close`,
+    '24h': `${TWENTY_FOUR_H_WINDOW_MIN_MS / MS_MINUTE} – ${TWENTY_FOUR_H_WINDOW_MAX_MS / MS_MINUTE} minutes before close (exclusive min)`,
+    '1h': `${ONE_H_WINDOW_MIN_MS / MS_MINUTE} – ${ONE_H_WINDOW_MAX_MS / MS_MINUTE} minutes before close (exclusive min)`,
   };
 }

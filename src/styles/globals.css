@@ -415,6 +415,10 @@
     @apply mt-0.5 text-[11px] leading-snug text-muted-foreground;
   }
 
+  .home-notifications-email {
+    @apply mt-0.5 truncate text-[11px] font-medium leading-snug text-foreground;
+  }
+
   .home-notifications-switch {
     @apply relative h-6 w-11 shrink-0 rounded-full bg-muted transition-colors;
   }

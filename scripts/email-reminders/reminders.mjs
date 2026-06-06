@@ -2,33 +2,34 @@ import admin from 'firebase-admin';
 import { formatIsraelDateTime, parseIsraelDateTime } from './israelTime.mjs';
 import { sendEmail } from './email.mjs';
 import { getReminderWindow } from './reminderWindows.mjs';
+import { formatRemainingSentence } from './timeRemaining.mjs';
 
 function getDb() {
   return admin.firestore();
 }
 
-function reminderDocId(reminder) {
-  return `${reminder.kind}:${reminder.seasonId}:${reminder.targetId}:${reminder.window}`;
+export function reminderDocId(uid, reminder) {
+  return `${uid}:${reminder.kind}:${reminder.seasonId}:${reminder.targetId}:${reminder.window}`;
 }
 
-function windowLabel(window, msUntil) {
-  if (window === '1h') return 'שעה';
-  const hours = Math.round(msUntil / (60 * 60 * 1000));
-  if (hours >= 20) return '24 שעות';
-  return `כ-${hours} שעות`;
+function getCloseLabel(reminder) {
+  if (reminder.kind === 'preseason') {
+    return 'ההימורים המקדימים';
+  }
+  return reminder.label;
 }
 
 function buildEmailHtml(subscriber, reminder, appUrl, msUntil) {
   const greeting = subscriber.displayName ? `שלום ${subscriber.displayName},` : 'שלום,';
   const deadlineText = formatIsraelDateTime(reminder.deadline);
-  const timeLeft = windowLabel(reminder.window, msUntil);
+  const remainingSentence = formatRemainingSentence(msUntil, getCloseLabel(reminder));
   const link = `${appUrl.replace(/\/$/, '')}${reminder.linkPath}`;
 
   return `
     <div dir="rtl" style="font-family:Segoe UI,Arial,sans-serif;line-height:1.6;color:#111">
       <p>${greeting}</p>
       <p>
-        נשארו <strong>${timeLeft}</strong> עד סגירת ${reminder.label}.
+        <strong>${remainingSentence}</strong>.
         <br />
         מועד סגירה: <strong>${deadlineText}</strong> (שעון ישראל)
       </p>
@@ -45,24 +46,32 @@ function buildEmailHtml(subscriber, reminder, appUrl, msUntil) {
 }
 
 function buildSubject(reminder, msUntil) {
-  const timeLeft = windowLabel(reminder.window, msUntil);
-  if (reminder.kind === 'preseason') {
-    return `תזכורת: נשארו ${timeLeft} לסגירת ההימורים המקדימים`;
-  }
-  return `תזכורת: נשארו ${timeLeft} לסגירת ${reminder.label}`;
+  const remainingSentence = formatRemainingSentence(msUntil, getCloseLabel(reminder));
+  return `תזכורת: ${remainingSentence}`;
 }
 
-async function wasReminderSent(reminderId) {
-  const doc = await getDb().doc(`emailReminderLog/${reminderId}`).get();
+async function wasReminderSent(docId) {
+  const doc = await getDb().doc(`emailReminderLog/${docId}`).get();
   return doc.exists;
 }
 
-async function markReminderSent(reminderId, reminder) {
-  await getDb().doc(`emailReminderLog/${reminderId}`).set({
-    ...reminder,
+async function markReminderSent(docId, { uid, email, reminder, providerMessageId }) {
+  const entry = {
+    uid,
+    email,
+    kind: reminder.kind,
+    seasonId: reminder.seasonId,
+    targetId: reminder.targetId,
+    window: reminder.window,
     deadline: admin.firestore.Timestamp.fromDate(reminder.deadline),
     sentAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  };
+
+  if (providerMessageId) {
+    entry.providerMessageId = providerMessageId;
+  }
+
+  await getDb().doc(`emailReminderLog/${docId}`).set(entry);
 }
 
 async function getSubscribers() {
@@ -152,6 +161,44 @@ function collectPreSeasonReminder(seasonId, now, seasonStart) {
   };
 }
 
+async function sendReminderToSubscriber(subscriber, reminder, { appUrl, msUntil, dryRun }) {
+  const docId = reminderDocId(subscriber.uid, reminder);
+
+  if (await wasReminderSent(docId)) {
+    console.log(`  Skip ${subscriber.email}: already sent (${docId})`);
+    return { sent: false, skipped: true };
+  }
+
+  if (dryRun) {
+    console.log(`  Dry run: would email ${subscriber.email} — ${buildSubject(reminder, msUntil)} (${docId})`);
+    return { sent: false, skipped: false };
+  }
+
+  const result = await sendEmail({
+    to: subscriber.email,
+    subject: buildSubject(reminder, msUntil),
+    html: buildEmailHtml(subscriber, reminder, appUrl, msUntil),
+  });
+
+  if (!result.ok) {
+    console.error(`  Failed for ${subscriber.email} (${docId}) — no log written, will retry next run`);
+    return { sent: false, skipped: false };
+  }
+
+  await markReminderSent(docId, {
+    uid: subscriber.uid,
+    email: subscriber.email,
+    reminder,
+    providerMessageId: result.providerMessageId,
+  });
+
+  console.log(
+    `  Sent to ${subscriber.email} (${docId})` +
+      (result.providerMessageId ? ` — id: ${result.providerMessageId}` : '')
+  );
+  return { sent: true, skipped: false };
+}
+
 export async function processBetDeadlineReminders() {
   const appUrl = process.env.APP_URL ?? 'https://israeli-premier-league.web.app';
   const dryRun = process.env.DRY_RUN === '1';
@@ -197,39 +244,23 @@ export async function processBetDeadlineReminders() {
   }
 
   for (const reminder of pendingReminders) {
-    const reminderId = reminderDocId(reminder);
     const msUntil = reminder.deadline.getTime() - now.getTime();
+    const reminderKey = `${reminder.kind}:${reminder.seasonId}:${reminder.targetId}:${reminder.window}`;
     console.log(
-      `Due: ${reminderId} — closes ${formatIsraelDateTime(reminder.deadline)} (${Math.round(msUntil / 60000)} min left)`
+      `Due: ${reminderKey} — closes ${formatIsraelDateTime(reminder.deadline)} (${Math.round(msUntil / 60000)} min left)`
     );
 
-    if (await wasReminderSent(reminderId)) {
-      console.log(`  Skip: already sent (${reminderId})`);
-      continue;
-    }
-
-    if (dryRun) {
-      console.log(`  Dry run: would email ${subscribers.length} subscribers`);
-      continue;
-    }
-
     let sentCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
 
     for (const subscriber of subscribers) {
-      const ok = await sendEmail({
-        to: subscriber.email,
-        subject: buildSubject(reminder, msUntil),
-        html: buildEmailHtml(subscriber, reminder, appUrl, msUntil),
-      });
-
-      if (ok) sentCount += 1;
+      const outcome = await sendReminderToSubscriber(subscriber, reminder, { appUrl, msUntil, dryRun });
+      if (outcome.sent) sentCount += 1;
+      else if (outcome.skipped) skippedCount += 1;
+      else failedCount += 1;
     }
 
-    if (sentCount > 0) {
-      await markReminderSent(reminderId, reminder);
-      console.log(`  Sent ${reminderId} to ${sentCount} subscribers`);
-    } else {
-      console.error(`  Failed to send ${reminderId} — check RESEND_API_KEY / EMAIL_FROM`);
-    }
+    console.log(`  Summary: sent=${sentCount}, skipped=${skippedCount}, failed=${failedCount}`);
   }
 }

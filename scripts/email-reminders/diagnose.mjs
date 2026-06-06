@@ -1,6 +1,7 @@
 import admin from 'firebase-admin';
 import { parseIsraelDateTime, formatIsraelDateTime } from './israelTime.mjs';
 import { getReminderWindow } from './reminderWindows.mjs';
+import { reminderDocId } from './reminders.mjs';
 
 const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
 if (!raw) {
@@ -64,8 +65,17 @@ if (seasonData.seasonStart) {
     console.log('seasonStart:', formatIsraelDateTime(deadline), `(${hoursLabel(msUntil)} until close)`);
     console.log('reminder window now:', window ?? 'none');
     if (window) {
-      const reminderId = `preseason:${seasonId}:seasonStart:${window}`;
-      console.log('already sent:', (await db.doc(`emailReminderLog/${reminderId}`).get()).exists, `(${reminderId})`);
+      const reminder = {
+        kind: 'preseason',
+        seasonId,
+        targetId: 'seasonStart',
+        window,
+      };
+      for (const userDoc of subscribersSnap.docs) {
+        const docId = reminderDocId(userDoc.id, reminder);
+        const sent = (await db.doc(`emailReminderLog/${docId}`).get()).exists;
+        console.log(`  ${userDoc.data().email ?? userDoc.id}: sent=${sent} (${docId})`);
+      }
     }
   }
 }
@@ -97,8 +107,17 @@ for (const roundDoc of roundsSnap.docs) {
   console.log(`  Round ${roundDoc.id} (${name}): closes ${formatIsraelDateTime(deadline)} — ${hoursLabel(msUntil)} left — window: ${window ?? 'none'}`);
 
   if (window) {
-    const reminderId = `round:${seasonId}:${roundDoc.id}:${window}`;
-    console.log(`    already sent: ${(await db.doc(`emailReminderLog/${reminderId}`).get()).exists} (${reminderId})`);
+    const reminder = {
+      kind: 'round',
+      seasonId,
+      targetId: roundDoc.id,
+      window,
+    };
+    for (const userDoc of subscribersSnap.docs) {
+      const docId = reminderDocId(userDoc.id, reminder);
+      const sent = (await db.doc(`emailReminderLog/${docId}`).get()).exists;
+      console.log(`    ${userDoc.data().email ?? userDoc.id}: sent=${sent} (${docId})`);
+    }
   }
 }
 
