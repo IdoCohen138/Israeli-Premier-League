@@ -1,41 +1,27 @@
 import admin from 'firebase-admin';
 import { formatIsraelDateTime, parseIsraelDateTime } from './israelTime.mjs';
 import { sendEmail } from './email.mjs';
-
-const MS_24H = 24 * 60 * 60 * 1000;
-const MS_1H = 60 * 60 * 1000;
-const WINDOW_TOLERANCE_MS = 20 * 60 * 1000;
+import { getReminderWindow } from './reminderWindows.mjs';
 
 function getDb() {
   return admin.firestore();
-}
-
-function getReminderWindow(msUntilDeadline) {
-  if (msUntilDeadline <= 0) return null;
-
-  if (msUntilDeadline > MS_24H - WINDOW_TOLERANCE_MS && msUntilDeadline <= MS_24H + WINDOW_TOLERANCE_MS) {
-    return '24h';
-  }
-
-  if (msUntilDeadline > MS_1H - WINDOW_TOLERANCE_MS && msUntilDeadline <= MS_1H + WINDOW_TOLERANCE_MS) {
-    return '1h';
-  }
-
-  return null;
 }
 
 function reminderDocId(reminder) {
   return `${reminder.kind}:${reminder.seasonId}:${reminder.targetId}:${reminder.window}`;
 }
 
-function windowLabel(window) {
-  return window === '24h' ? '24 שעות' : 'שעה';
+function windowLabel(window, msUntil) {
+  if (window === '1h') return 'שעה';
+  const hours = Math.round(msUntil / (60 * 60 * 1000));
+  if (hours >= 20) return '24 שעות';
+  return `כ-${hours} שעות`;
 }
 
-function buildEmailHtml(subscriber, reminder, appUrl) {
+function buildEmailHtml(subscriber, reminder, appUrl, msUntil) {
   const greeting = subscriber.displayName ? `שלום ${subscriber.displayName},` : 'שלום,';
   const deadlineText = formatIsraelDateTime(reminder.deadline);
-  const timeLeft = windowLabel(reminder.window);
+  const timeLeft = windowLabel(reminder.window, msUntil);
   const link = `${appUrl.replace(/\/$/, '')}${reminder.linkPath}`;
 
   return `
@@ -58,8 +44,8 @@ function buildEmailHtml(subscriber, reminder, appUrl) {
   `;
 }
 
-function buildSubject(reminder) {
-  const timeLeft = windowLabel(reminder.window);
+function buildSubject(reminder, msUntil) {
+  const timeLeft = windowLabel(reminder.window, msUntil);
   if (reminder.kind === 'preseason') {
     return `תזכורת: נשארו ${timeLeft} לסגירת ההימורים המקדימים`;
   }
@@ -168,6 +154,12 @@ function collectPreSeasonReminder(seasonId, now, seasonStart) {
 
 export async function processBetDeadlineReminders() {
   const appUrl = process.env.APP_URL ?? 'https://israeli-premier-league.web.app';
+  const dryRun = process.env.DRY_RUN === '1';
+
+  if (!process.env.RESEND_API_KEY && !dryRun) {
+    throw new Error('RESEND_API_KEY secret is missing — add it in GitHub → Settings → Secrets');
+  }
+
   const seasonId = await getActiveSeasonId();
 
   if (!seasonId) {
@@ -177,9 +169,11 @@ export async function processBetDeadlineReminders() {
 
   const subscribers = await getSubscribers();
   if (subscribers.length === 0) {
-    console.log('No subscribers with email reminders enabled');
+    console.log('No subscribers with emailReminders=true in Firestore');
     return;
   }
+
+  console.log(`Active season: ${seasonId}, subscribers: ${subscribers.length}, dryRun: ${dryRun}`);
 
   const now = new Date();
   const seasonDoc = await getDb().doc(`season/${seasonId}`).get();
@@ -198,14 +192,24 @@ export async function processBetDeadlineReminders() {
   }
 
   if (pendingReminders.length === 0) {
-    console.log('No reminders due in this run');
+    console.log('No reminders due in this run (deadline uses round.startTime, not match time)');
     return;
   }
 
   for (const reminder of pendingReminders) {
     const reminderId = reminderDocId(reminder);
+    const msUntil = reminder.deadline.getTime() - now.getTime();
+    console.log(
+      `Due: ${reminderId} — closes ${formatIsraelDateTime(reminder.deadline)} (${Math.round(msUntil / 60000)} min left)`
+    );
 
     if (await wasReminderSent(reminderId)) {
+      console.log(`  Skip: already sent (${reminderId})`);
+      continue;
+    }
+
+    if (dryRun) {
+      console.log(`  Dry run: would email ${subscribers.length} subscribers`);
       continue;
     }
 
@@ -214,8 +218,8 @@ export async function processBetDeadlineReminders() {
     for (const subscriber of subscribers) {
       const ok = await sendEmail({
         to: subscriber.email,
-        subject: buildSubject(reminder),
-        html: buildEmailHtml(subscriber, reminder, appUrl),
+        subject: buildSubject(reminder, msUntil),
+        html: buildEmailHtml(subscriber, reminder, appUrl, msUntil),
       });
 
       if (ok) sentCount += 1;
@@ -223,7 +227,9 @@ export async function processBetDeadlineReminders() {
 
     if (sentCount > 0) {
       await markReminderSent(reminderId, reminder);
-      console.log(`Sent ${reminderId} to ${sentCount} subscribers`);
+      console.log(`  Sent ${reminderId} to ${sentCount} subscribers`);
+    } else {
+      console.error(`  Failed to send ${reminderId} — check RESEND_API_KEY / EMAIL_FROM`);
     }
   }
 }

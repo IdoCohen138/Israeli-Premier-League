@@ -25,3 +25,5 @@ try {
   console.error('Reminder job failed:', error);
   process.exit(1);
 }
+
+console.log('Reminder job finished OK');
