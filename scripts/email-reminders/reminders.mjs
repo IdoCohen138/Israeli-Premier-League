@@ -250,10 +250,6 @@ export async function processBetDeadlineReminders() {
   const emailFrom = process.env.EMAIL_FROM ?? 'ניחושים ליגת העל <onboarding@resend.dev>';
   const dryRun = isDryRunEnv();
 
-  console.log('EMAIL_FROM =', emailFrom);
-  console.log('APP_URL =', appUrl);
-  console.log('RESEND_API_KEY set:', Boolean(process.env.RESEND_API_KEY));
-
   if (dryRun) {
     console.log('DRY RUN - no emails sent');
   }
