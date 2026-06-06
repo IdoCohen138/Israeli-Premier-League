@@ -1,0 +1,40 @@
+name: Bet deadline email reminders
+
+on:
+  schedule:
+    # Every 15 minutes (UTC). Covers 24h / 1h windows with ±20 min tolerance.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: bet-deadline-email-reminders
+  cancel-in-progress: false
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: scripts/email-reminders/package-lock.json
+
+      - name: Install dependencies
+        working-directory: scripts/email-reminders
+        run: npm ci
+
+      - name: Send bet deadline reminders
+        working-directory: scripts/email-reminders
+        run: node run.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          APP_URL: ${{ vars.APP_URL }}

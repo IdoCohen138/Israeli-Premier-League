@@ -8,11 +8,19 @@ import {
   getDocs,
   orderBy,
   limit,
-  deleteDoc
+  deleteDoc,
+  deleteField
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { PlayerBets, Bet, Match } from '../types';
-import { getCurrentSeason } from './season';
+import { getCurrentSeason, getCurrentSeasonData } from './season';
+import { getCached, CACHE_TTL } from './firestoreCache';
+import {
+  assertBettingOpen,
+  ensureServerTimeSynced,
+  getEffectiveDeadlineForUser,
+  getTrustedNow,
+} from './serverTime';
 
 // יצירת או עדכון הימורים מקדימים של שחקן
 export const savePreSeasonBets = async (
@@ -21,11 +29,18 @@ export const savePreSeasonBets = async (
   displayName?: string
 ): Promise<void> => {
   try {
+    await ensureServerTimeSynced(userId);
+
+    const seasonData = await getCurrentSeasonData();
+    if (seasonData?.seasonStart) {
+      assertBettingOpen(seasonData.seasonStart);
+    }
+
     const currentSeason = getCurrentSeason();
     const playerBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId);
     const playerBetsDoc = await getDoc(playerBetsRef);
     
-    const now = new Date();
+    const now = getTrustedNow();
     
     if (playerBetsDoc.exists()) {
       await updateDoc(playerBetsRef, {
@@ -64,11 +79,24 @@ export const saveRoundBets = async (
   displayName?: string
 ): Promise<void> => {
   try {
+    await ensureServerTimeSynced(userId);
+
     const currentSeason = getCurrentSeason();
+    const roundDoc = await getDoc(
+      doc(db, 'season', currentSeason, 'rounds', roundNumber.toString())
+    );
+    const roundData = roundDoc.data();
+    const roundStartTime = roundData?.startTime;
+    const extensions = (roundData?.bettingExtensions ?? {}) as Record<string, string>;
+    if (roundStartTime) {
+      const effectiveDeadline = getEffectiveDeadlineForUser(roundStartTime, userId, extensions);
+      assertBettingOpen(effectiveDeadline);
+    }
+
     const roundBetsRef = doc(db, 'season', currentSeason, 'playerBets', userId, 'roundBetsCollection', roundNumber.toString());
     const roundBetsDoc = await getDoc(roundBetsRef);
     
-    const now = new Date();
+    const now = getTrustedNow();
     
     // שמירת ההימורים עם נקודות קיימות (אם יש) או איפוס אם זה הימור חדש
     const betsWithPoints = bets.map(bet => ({
@@ -179,26 +207,29 @@ export const getPlayerRoundBets = async (userId: string, roundNumber: number): P
 };
 
 // קבלת טבלת דירוג
-export const getLeaderboard = async (): Promise<PlayerBets[]> => {
-  try {
-    const currentSeason = getCurrentSeason();
-    const playerBetsRef = collection(db, 'season', currentSeason, 'playerBets');
-    const q = query(playerBetsRef, orderBy('totalPoints', 'desc'), limit(50));
-    const querySnapshot = await getDocs(q);
-    
-    const leaderboard: PlayerBets[] = [];
-    querySnapshot.forEach((doc) => {
-      const playerData = doc.data() as PlayerBets;
-      // הוספת ה-uid כ-document ID
-      playerData.uid = doc.id;
-      leaderboard.push(playerData);
-    });
-    
-    return leaderboard;
-  } catch (error) {
-    console.error('Error getting leaderboard:', error);
-    throw error;
-  }
+export const getLeaderboard = async (seasonId?: string): Promise<PlayerBets[]> => {
+  const currentSeason = seasonId ?? getCurrentSeason();
+  const cacheKey = `leaderboard:${currentSeason}`;
+
+  return getCached(cacheKey, CACHE_TTL.rounds, async () => {
+    try {
+      const playerBetsRef = collection(db, 'season', currentSeason, 'playerBets');
+      const q = query(playerBetsRef, orderBy('totalPoints', 'desc'), limit(50));
+      const querySnapshot = await getDocs(q);
+
+      const leaderboard: PlayerBets[] = [];
+      querySnapshot.forEach((playerDoc) => {
+        const playerData = playerDoc.data() as PlayerBets;
+        playerData.uid = playerDoc.id;
+        leaderboard.push(playerData);
+      });
+
+      return leaderboard;
+    } catch (error) {
+      console.error('Error getting leaderboard:', error);
+      throw error;
+    }
+  });
 };
 
 // עדכון נקודות של שחקן
@@ -249,9 +280,33 @@ export const updatePlayerPoints = async (
   }
 };
 
+// פתיחה של חלון הימורים למשתמש ספציפי במחזור מסוים (admin only)
+export const grantUserBettingExtension = async (
+  roundNumber: number,
+  targetUserId: string,
+  extendedUntilIso: string
+): Promise<void> => {
+  const currentSeason = getCurrentSeason();
+  const roundRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString());
+  await updateDoc(roundRef, {
+    [`bettingExtensions.${targetUserId}`]: extendedUntilIso,
+  });
+};
+
+// ביטול הארכה למשתמש ספציפי (admin only)
+export const revokeUserBettingExtension = async (
+  roundNumber: number,
+  targetUserId: string
+): Promise<void> => {
+  const currentSeason = getCurrentSeason();
+  const roundRef = doc(db, 'season', currentSeason, 'rounds', roundNumber.toString());
+  await updateDoc(roundRef, {
+    [`bettingExtensions.${targetUserId}`]: deleteField(),
+  });
+};
+
 // בדיקה אם שחקן כבר הימר על מחזור מסוים
-export const hasPlayerBetOnRound = async (userId: string, roundNumber: number): Promise<boolean> => {
-  try {
+export const hasPlayerBetOnRound = async (userId: string, roundNumber: number): Promise<boolean> => {  try {
     const currentSeason = getCurrentSeason();
     const roundBetDocRef = doc(db, 'season', currentSeason, 'playerBets', userId, 'roundBetsCollection', roundNumber.toString());
     const docSnap = await getDoc(roundBetDocRef);

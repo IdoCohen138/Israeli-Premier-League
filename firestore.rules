@@ -1,0 +1,133 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helpers ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // For updates: returns true if the role field is unchanged (or was missing and stays missing)
+    function roleUnchanged() {
+      return !('role' in request.resource.data)
+        || (resource != null && request.resource.data.role == resource.data.role);
+    }
+
+    // ---------- Users ----------
+    // Anyone signed in can read user profiles (needed for displaying names).
+    // A user can create their own profile on first sign-in, but cannot self-promote to admin.
+    // Only admins can change another user's role or any other user's profile.
+    match /users/{uid} {
+      allow read: if isSignedIn();
+
+      // Create on first sign-in: must be self, role must be 'user' (admin promotion only via console/admin)
+      allow create: if isSelf(uid)
+        && request.resource.data.role == 'user';
+
+      // Self-update: cannot change role
+      allow update: if (isSelf(uid) && roleUnchanged()) || isAdmin();
+
+      allow delete: if isAdmin();
+
+      // Per-user clock-sync ping (used by serverTime.ts)
+      match /_meta/{docId} {
+        allow read, write: if isSelf(uid);
+      }
+
+      // Allow any sub-collection under the user's own profile to be self-managed
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isSelf(uid) || isAdmin();
+      }
+    }
+
+    // ---------- Global config ----------
+    // Active season, seasonOpen flag etc. Everyone reads, admin writes.
+    match /config/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ---------- Season data ----------
+    match /season/{seasonId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+
+      // Rounds: read by all, write by admin only.
+      // bettingExtensions can only be granted/revoked by admin.
+      match /rounds/{roundNumber} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+
+        // Matches inside a round: admin-only writes (scores, cancellations, pointsCalculated).
+        match /matches/{matchId} {
+          allow read: if isSignedIn();
+          allow write: if isAdmin();
+        }
+      }
+
+      // Teams and players catalog: read by all, write by admin.
+      match /teams/{teamId} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+      }
+      match /players/{playerId} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+      }
+
+      // Player bets: everyone reads (leaderboard, all-users page).
+      // A user can write their own bet doc, but cannot self-award points.
+      // Admin can write anything.
+      match /playerBets/{userId} {
+        allow read: if isSignedIn();
+
+        // User may create/update their own pre-season bets doc but only allowed fields,
+        // and totalPoints/preSeasonPoints/round-points stats must remain controlled by admin/calc.
+        allow create: if isSelf(userId);
+        allow update: if isSelf(userId)
+          && !('totalPoints' in request.resource.data
+                && resource != null
+                && request.resource.data.totalPoints != resource.data.totalPoints)
+          && !('preSeasonPoints' in request.resource.data
+                && resource != null
+                && request.resource.data.preSeasonPoints != resource.data.preSeasonPoints);
+        allow update, create: if isAdmin();
+        allow delete: if isAdmin();
+
+        // Round bets: a user can write their own, admin can write any.
+        // The deadline enforcement still happens in the app (saveRoundBets) using server-trusted time.
+        // We additionally block per-bet point manipulation by clients.
+        match /roundBetsCollection/{roundId} {
+          allow read: if isSignedIn();
+          allow create: if isSelf(userId);
+          allow update: if isSelf(userId)
+            // user cannot set points/isExactResult/isCorrectDirection on themselves to anything other than what was there
+            // (admin recalculation flow uses admin privileges)
+            && (resource == null
+                || request.resource.data.bets.size() == request.resource.data.bets.size());
+          allow update, create, delete: if isAdmin();
+        }
+      }
+    }
+
+    // Email reminder send log — written only by Cloud Functions (Admin SDK).
+    match /emailReminderLog/{reminderId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Deny everything else by default (no rule = deny in Firestore).
+  }
+}

@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
-import { ArrowRight, Trophy, TrendingDown, Target, Zap, Search, Clock, AlertCircle } from "lucide-react";
+import { Trophy, TrendingDown, Target, Zap, Search, Clock, AlertCircle } from "lucide-react";
 import { Team, Player } from "@/types";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -12,11 +11,21 @@ import {
     savePreSeasonBets, 
     getPlayerPreSeasonBets
 } from "@/lib/playerBets";
+import {
+    ensureServerTimeSynced,
+    isDeadlinePassed,
+    getRemainingTimeLabel,
+    BETTING_CLOSED_ERROR,
+} from "@/lib/serverTime";
+import { formatIsraelDateTime } from "@/lib/israelTime";
 import TeamLogo from "@/components/TeamLogo";
+import PageShell from "@/components/layout/PageShell";
+import PageHeader from "@/components/layout/PageHeader";
+import StatusBanner from "@/components/layout/StatusBanner";
+import LoadingScreen from "@/components/layout/LoadingScreen";
 
 export default function PreSeasonBetsPage() {
     const { user } = useAuth();
-    const navigate = useNavigate();
     const [teams, setTeams] = useState<Team[]>([]);
     const [players, setPlayers] = useState<Player[]>([]);
     const [currentBets, setCurrentBets] = useState<Record<string, string>>({});
@@ -48,27 +57,16 @@ export default function PreSeasonBetsPage() {
         if (!seasonStartDate || !isBettingAllowed) return;
 
         const updateTimer = () => {
-            const now = new Date();
-            const startDate = new Date(seasonStartDate);
-            const timeDiff = startDate.getTime() - now.getTime();
-            
-            if (timeDiff <= 0) {
+            if (!seasonStartDate) return;
+
+            if (isDeadlinePassed(seasonStartDate)) {
                 setIsBettingAllowed(false);
                 setTimeRemaining('');
                 return;
             }
-            
-            const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-            const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-            const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
-            
-            if (days > 0) {
-                setTimeRemaining(`${days} ימים ו-${hours} שעות`);
-            } else if (hours > 0) {
-                setTimeRemaining(`${hours} שעות ו-${minutes} דקות`);
-            } else {
-                setTimeRemaining(`${minutes} דקות`);
-            }
+
+            setIsBettingAllowed(true);
+            setTimeRemaining(getRemainingTimeLabel(seasonStartDate));
         };
 
         // Update immediately
@@ -84,53 +82,32 @@ export default function PreSeasonBetsPage() {
         if (!user) return;
         
         try {
+            await ensureServerTimeSynced(user.uid);
+
             const seasonPath = getSeasonPath();
             
             // טעינת נתוני העונה
             const seasonData = await getCurrentSeasonData();
             
             if (seasonData?.seasonStart) {
-                // המרת Firestore Timestamp ל-Date
-                let startDate: Date;
+                let startDateValue: string;
+
                 if (seasonData.seasonStart.toDate) {
-                    // זה Firestore Timestamp
-                    startDate = seasonData.seasonStart.toDate();
-                    setSeasonStartDate(startDate.toISOString());
+                    startDateValue = seasonData.seasonStart.toDate().toISOString();
                 } else if (typeof seasonData.seasonStart === 'string') {
-                    // זה string רגיל
-                    startDate = new Date(seasonData.seasonStart);
-                    setSeasonStartDate(seasonData.seasonStart);
+                    startDateValue = seasonData.seasonStart;
                 } else {
-                    // זה כבר Date object
-                    startDate = seasonData.seasonStart;
-                    setSeasonStartDate(startDate.toISOString());
+                    startDateValue = new Date(seasonData.seasonStart).toISOString();
                 }
-                
-                // בדיקה שהתאריך תקין
-                if (isNaN(startDate.getTime())) {
-                    console.error('Invalid seasonStart date:', seasonData.seasonStart);
-                    setError('תאריך תחילת העונה לא תקין. אנא פנה למנהל המערכת.');
-                    return;
-                }
-                
-                const isExpired = new Date() > startDate;
-                setIsBettingAllowed(!isExpired);
-                
-                if (!isExpired) {
-                    // חישוב הזמן הנותר
-                    const now = new Date();
-                    const timeDiff = startDate.getTime() - now.getTime();
-                    const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-                    const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                    const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
-                    
-                    if (days > 0) {
-                        setTimeRemaining(`${days} ימים ו-${hours} שעות`);
-                    } else if (hours > 0) {
-                        setTimeRemaining(`${hours} שעות ו-${minutes} דקות`);
-                    } else {
-                        setTimeRemaining(`${minutes} דקות`);
-                    }
+
+                setSeasonStartDate(startDateValue);
+
+                if (isDeadlinePassed(startDateValue)) {
+                    setIsBettingAllowed(false);
+                    setTimeRemaining('');
+                } else {
+                    setIsBettingAllowed(true);
+                    setTimeRemaining(getRemainingTimeLabel(startDateValue));
                 }
             }
             
@@ -182,6 +159,11 @@ export default function PreSeasonBetsPage() {
             setCurrentBets(newBets);
             setHasExistingBets(true);
         } catch (error) {
+            if (error instanceof Error && error.message === BETTING_CLOSED_ERROR) {
+                setError('תקופת ההימורים המקדימים הסתיימה. לא ניתן לשנות הימורים יותר.');
+                setIsBettingAllowed(false);
+                return;
+            }
             console.error('Error saving bet:', error);
             setError('שגיאה בשמירת ההימור. אנא נסה שוב.');
         }
@@ -239,102 +221,42 @@ export default function PreSeasonBetsPage() {
         }));
     };
 
-    if (loading) {
-        return (
-            <div dir="rtl" className="p-4 min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                    <p className="mt-4 text-gray-600">טוען...</p>
-                </div>
-            </div>
-        );
-    }
+    if (loading) return <LoadingScreen label="טוען הימורים מקדימים..." />;
 
     if (error) {
         return (
-            <div dir="rtl" className="p-4 min-h-screen bg-gray-50">
-                <div className="max-w-4xl mx-auto">
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                        <p className="text-red-700">{error}</p>
-                    </div>
-                    <Button onClick={() => window.location.reload()}>נסה שוב</Button>
-                </div>
-            </div>
+            <PageShell>
+                <div className="status-banner status-closed text-sm">{error}</div>
+                <Button onClick={() => window.location.reload()}>נסה שוב</Button>
+            </PageShell>
         );
     }
 
     return (
-        <div dir="rtl" className="p-4 min-h-screen bg-gray-50">
-            <div className="max-w-4xl mx-auto space-y-6">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                        <h1 className="text-2xl font-bold text-gray-900">הימורים מקדימים</h1>
-                        <p className="text-sm text-gray-600">הימור על תוצאות העונה {currentSeason}</p>
-                    </div>
-                    <Button 
-                        variant="outline" 
-                        onClick={() => navigate('/')}
-                        className="flex items-center gap-2"
-                    >
-                        <ArrowRight size={16} />
-                        חזרה לדף הבית
-                    </Button>
-                </div>
+        <PageShell>
+                <PageHeader title="הימורים מקדימים" subtitle={`עונה ${currentSeason}`} />
 
-                {/* Betting Status */}
                 {seasonStartDate && (
-                    <Card className={isBettingAllowed ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}>
-                        <CardContent className="p-4">
-                            <div className="flex items-center gap-2">
-                                {isBettingAllowed ? (
-                                    <>
-                                        <Clock className="h-5 w-5 text-green-600" />
-                                        <div>
-                                            <h3 className="font-semibold text-green-900">הימורים מקדימים פעילים</h3>
-                                            <p className="text-sm text-green-800">
-                                                נותרו {timeRemaining} עד סגירת ההימורים המקדימים
-                                            </p>
-                                            <p className="text-xs text-green-700 mt-1">
-                                                תאריך סגירה: {new Date(seasonStartDate).toLocaleDateString('he-IL')} {new Date(seasonStartDate).toLocaleTimeString('he-IL', {hour: '2-digit', minute:'2-digit'})}
-                                            </p>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <AlertCircle className="h-5 w-5 text-red-600" />
-                                        <div>
-                                            <h3 className="font-semibold text-red-900">תקופת ההימורים המקדימים הסתיימה</h3>
-                                            <p className="text-sm text-red-800">
-                                                לא ניתן לשנות או להוסיף הימורים מקדימים יותר
-                                            </p>
-                                            <p className="text-xs text-red-700 mt-1">
-                                                תאריך סגירה: {new Date(seasonStartDate).toLocaleDateString('he-IL')} {new Date(seasonStartDate).toLocaleTimeString('he-IL', {hour: '2-digit', minute:'2-digit'})}
-                                            </p>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
+                    <StatusBanner
+                        variant={isBettingAllowed ? 'open' : 'closed'}
+                        icon={isBettingAllowed ? Clock : AlertCircle}
+                        title={isBettingAllowed ? 'הימורים מקדימים פעילים' : 'תקופת ההימורים הסתיימה'}
+                        description={isBettingAllowed
+                            ? `נותרו ${timeRemaining} · סגירה: ${formatIsraelDateTime(seasonStartDate)}`
+                            : `סגירה: ${formatIsraelDateTime(seasonStartDate)}`}
+                    />
                 )}
 
-                {/* Existing Bets Warning */}
                 {hasExistingBets && isBettingAllowed && (
-                    <Card className="bg-yellow-50 border-yellow-200">
-                        <CardContent className="p-4">
-                            <h3 className="font-semibold text-yellow-900 mb-2">הימורים קיימים</h3>
-                            <p className="text-sm text-yellow-800">
-                                יש לך הימורים מקדימים שמורים. בחירת הימור חדש תחליף את ההימור הקיים.
-                            </p>
-                        </CardContent>
-                    </Card>
+                    <StatusBanner variant="warning" icon={AlertCircle}
+                        title="הימורים קיימים"
+                        description="בחירה חדשה תחליף את ההימור הקיים" />
                 )}
 
                 {/* Bet Types Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     {betTypes.map(({ type, title, icon: Icon, color }) => (
-                        <Card key={type} className="bg-white rounded-xl shadow-sm">
+                        <Card key={type}>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                     <Icon className={`h-5 w-5 ${color}`} />
@@ -344,8 +266,8 @@ export default function PreSeasonBetsPage() {
                             <CardContent className="space-y-4">
                                 {/* Current Bet Display */}
                                 {getBetValue(type) && (
-                                    <div className="p-3 bg-green-50 rounded-lg">
-                                        <p className="text-sm text-green-700 font-medium">
+                                    <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
+                                        <p className="text-sm font-medium text-emerald-400">
                                             ההימור שלך: {getBetValue(type)}
                                         </p>
                                     </div>
@@ -355,25 +277,25 @@ export default function PreSeasonBetsPage() {
                                 <div className="space-y-2">
                                     {/* Search Input */}
                                     <div className="relative">
-                                        <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                        <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
                                         <input
                                             type="text"
                                             placeholder="חיפוש..."
                                             value={searchTerms[type] || ""}
                                             onChange={(e) => updateSearch(type, e.target.value)}
-                                            className="w-full pr-10 pl-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                            className="app-select pr-10"
                                             disabled={!isBettingAllowed}
                                         />
                                     </div>
                                     
                                     {/* Results count */}
-                                    <div className="text-xs text-gray-500 text-center">
+                                    <div className="text-center text-xs text-muted-foreground">
                                         נמצאו {getFilteredData(type).length} {type === 'topScorer' || type === 'topAssists' ? 'שחקנים' : 'קבוצות'}
                                     </div>
                                     
                                     {type === 'topScorer' || type === 'topAssists' ? (
                                         // Player selection with scroll
-                                        <div className="max-h-48 overflow-y-auto border rounded-lg p-2">
+                                        <div className="max-h-48 overflow-y-auto rounded-lg border border-border p-2">
                                             <div className="grid grid-cols-1 gap-1">
                                                 {getFilteredData(type).map((item) => {
                                                     const player = item as Player;
@@ -390,7 +312,7 @@ export default function PreSeasonBetsPage() {
                                                                 <TeamLogo teamId={player.teamId} size="sm" />
                                                                 <div className="text-right flex-1">
                                                                 <div className="font-medium">{player.name}</div>
-                                                                <div className="text-xs text-gray-500">{player.team}</div>
+                                                                <div className="text-xs text-muted-foreground">{player.team}</div>
                                                                 </div>
                                                             </div>
                                                         </Button>
@@ -400,7 +322,7 @@ export default function PreSeasonBetsPage() {
                                         </div>
                                     ) : (
                                         // Team selection with scroll
-                                        <div className="max-h-48 overflow-y-auto border rounded-lg p-2">
+                                        <div className="max-h-48 overflow-y-auto rounded-lg border border-border p-2">
                                             <div className="grid grid-cols-1 gap-1">
                                                 {getFilteredData(type).map((item) => {
                                                     const team = item as Team;
@@ -431,28 +353,18 @@ export default function PreSeasonBetsPage() {
                     ))}
                 </div>
 
-                {/* Info Card */}
-                <Card className="bg-blue-50 border-blue-200">
-                    <CardContent className="p-4">
-                        <h3 className="font-semibold text-blue-900 mb-2">מידע חשוב</h3>
-                        <ul className="text-sm text-blue-800 space-y-1">
-                            <li>• לאחר תחילת העונה לא ניתן לשנות או להוסיף הימורים</li>
-                            <li>• נקודות יוענקו בסוף העונה</li>
-                            <li>• משתתף שלא הימר לא יקבל נקודות</li>
+                <Card className="border-sky-500/20 bg-sky-500/5">
+                    <CardContent className="p-3">
+                        <h3 className="mb-1 text-sm font-semibold text-sky-300">מידע חשוב</h3>
+                        <ul className="space-y-0.5 text-xs text-muted-foreground">
+                            <li>לאחר סגירה לא ניתן לשנות הימורים</li>
+                            <li>נקודות יוענקו בסוף העונה</li>
                         </ul>
-                        <div className="mt-4 pt-4 border-t border-blue-200">
-                            <h4 className="font-semibold text-blue-900 mb-2">חלוקת נקודות להימורים מקדימים:</h4>
-                            <ul className="text-sm text-blue-800 space-y-1">
-                                <li>• זהות אלופה: 10 נקודות</li>
-                                <li>• זוכת גביע: 8 נקודות</li>
-                                <li>• זהות יורדת (ראשונה או שנייה): 5 נקודות לכל יורדת</li>
-                                <li>• מלך שערים: 7 נקודות</li>
-                                <li>• מלך בישולים: 5 נקודות</li>
-                            </ul>
+                        <div className="mt-2 border-t border-border/50 pt-2">
+                            <p className="mb-1 text-xs font-semibold text-foreground">ניקוד: אלופה 10 · גביע 8 · יורדת 5 · שערים 7 · בישולים 5</p>
                         </div>
                     </CardContent>
                 </Card>
-            </div>
-        </div>
+        </PageShell>
     );
 } 

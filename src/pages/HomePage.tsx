@@ -1,192 +1,262 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ElementType } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSeason } from "@/contexts/SeasonContext";
 import { useNavigate } from "react-router-dom";
-import { Trophy, Target, Users, Settings, LogOut } from "lucide-react";
-import { getCurrentRound, getSeasonPath } from "@/lib/season";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import {
+    Trophy,
+    Target,
+    Users,
+    Settings,
+    LogOut,
+    History,
+    CalendarDays,
+    ChevronLeft,
+    BarChart3,
+    Sparkles,
+} from "lucide-react";
+import { formatSeasonDisplay, getHomeRoundInfo, listSeasonIds } from "@/lib/season";
+import PreviousSeasonTableModal, { getPreviousSeasonDismissKey } from "@/components/PreviousSeasonTableModal";
+import PageShell from "@/components/layout/PageShell";
+import ThemeToggle from "@/components/layout/ThemeToggle";
+import NotificationToggle from "@/components/home/NotificationToggle";
+import { cn } from "@/lib/utils";
+
+interface ActionCardProps {
+    icon: ElementType;
+    title: string;
+    subtitle: string;
+    onClick: () => void;
+    variant?: "primary" | "gold" | "default";
+    featured?: boolean;
+}
+
+function ActionCard({ icon: Icon, title, subtitle, onClick, variant = "default", featured }: ActionCardProps) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className={cn(
+                "home-action-card group text-right",
+                variant === "primary" && "home-action-card--primary",
+                variant === "gold" && "home-action-card--gold",
+                featured && "home-action-card--featured sm:col-span-2"
+            )}
+        >
+            <div className="flex items-start justify-between gap-2">
+                <ChevronLeft size={16} className="mt-1 shrink-0 text-muted-foreground/50 transition-transform group-hover:-translate-x-0.5" />
+                <div className="min-w-0 flex-1">
+                    <div className="home-action-icon">
+                        <Icon size={featured ? 22 : 18} />
+                    </div>
+                    <h3 className="home-action-title">{title}</h3>
+                    <p className="home-action-subtitle">{subtitle}</p>
+                </div>
+            </div>
+        </button>
+    );
+}
 
 export default function HomePage() {
     const { user, logout } = useAuth();
+    const { activeSeasonId, previousSeasonIds } = useSeason();
     const navigate = useNavigate();
+    const [currentRoundName, setCurrentRoundName] = useState('');
     const [currentRoundNumber, setCurrentRoundNumber] = useState<number | null>(null);
-    const [currentRoundName, setCurrentRoundName] = useState<string>('');
-    const [nextRoundTime, setNextRoundTime] = useState<string>('');
+    const [nextRoundTime, setNextRoundTime] = useState('');
     const [loading, setLoading] = useState(true);
+    const [modalSeasonId, setModalSeasonId] = useState<string | null>(null);
+    const [showArchiveModal, setShowArchiveModal] = useState(false);
+    const [allPreviousSeasonIds, setAllPreviousSeasonIds] = useState<string[]>([]);
+    useEffect(() => {
+        let cancelled = false;
+
+        const load = async () => {
+            setLoading(true);
+            try {
+                const info = await getHomeRoundInfo(activeSeasonId);
+                if (cancelled) return;
+                setCurrentRoundNumber(info.currentRoundNumber);
+                setCurrentRoundName(info.currentRoundName);
+                setNextRoundTime(info.nextRoundTime);
+            } catch (error) {
+                console.error('Error loading home round info:', error);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+
+        load();
+        return () => {
+            cancelled = true;
+        };
+    }, [activeSeasonId]);
 
     useEffect(() => {
-        loadCurrentRound();
-    }, []);
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const all = await listSeasonIds();
+                if (cancelled) return;
+                setAllPreviousSeasonIds(all.filter((id) => id !== activeSeasonId));
+            } catch (error) {
+                console.error('Error loading season list:', error);
+            }
+        };
+        load();
+        return () => {
+            cancelled = true;
+        };
+    }, [activeSeasonId]);
 
-    const loadCurrentRound = async () => {
-        try {
-            const round = await getCurrentRound();
-            setCurrentRoundNumber(round);
-            
-            // טעינת שם המחזור הנוכחי
-            if (round) {
-                const seasonPath = getSeasonPath();
-                const roundDoc = await getDocs(collection(db, seasonPath, 'rounds'));
-                const roundData = roundDoc.docs.find(doc => parseInt(doc.id) === round);
-                if (roundData) {
-                    const data = roundData.data();
-                    setCurrentRoundName(data.name || `מחזור ${round}`);
-                } else {
-                    setCurrentRoundName(`מחזור ${round}`);
-                }
-            }
-            
-            // טעינת זמן המחזור הבא
-            if (round) {
-                await loadNextRoundTime(round);
-            }
-        } catch (error) {
-            console.error('Error loading current round:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const loadNextRoundTime = async (currentRound: number) => {
-        try {
-            const seasonPath = getSeasonPath();
-            const roundsSnapshot = await getDocs(collection(db, seasonPath, 'rounds'));
-            
-            const rounds = roundsSnapshot.docs
-                .map(doc => ({
-                    number: parseInt(doc.id),
-                    startTime: doc.data().startTime || ''
-                }))
-                .sort((a, b) => a.number - b.number);
-            
-            const nextRound = rounds.find(r => r.number === currentRound + 1);
-            if (nextRound && nextRound.startTime) {
-                const nextRoundDate = new Date(nextRound.startTime);
-                setNextRoundTime(nextRoundDate.toLocaleString('he-IL'));
-            } else {
-                setNextRoundTime('');
-            }
-        } catch (error) {
-            console.error('Error loading next round time:', error);
-        }
-    };
+    useEffect(() => {
+        if (previousSeasonIds.length === 0) return;
+        const mostRecent = previousSeasonIds[0];
+        const dismissed = localStorage.getItem(getPreviousSeasonDismissKey(mostRecent));
+        if (!dismissed) setModalSeasonId(mostRecent);
+    }, [previousSeasonIds]);
 
     const handleLogout = async () => {
         await logout();
         navigate('/login');
     };
 
+    const displayName = user?.displayName || user?.email?.split('@')[0] || 'שחקן';
+    const roundDisplay = loading ? '…' : (currentRoundName || (currentRoundNumber ? `מחזור ${currentRoundNumber}` : '—'));
+
     return (
-        <div dir="rtl" className="min-h-screen bg-gray-50">
-            <div className="container mx-auto px-4 py-6 max-w-4xl">
+        <PageShell showThemeToggle={false} className="home-page">
+            {modalSeasonId && (
+                <PreviousSeasonTableModal
+                    seasonId={modalSeasonId}
+                    isOpen={!!modalSeasonId}
+                    onClose={() => setModalSeasonId(null)}
+                    excludeSeasonId={activeSeasonId}
+                />
+            )}
+
+            {showArchiveModal && (
+                <PreviousSeasonTableModal
+                    isOpen={showArchiveModal}
+                    onClose={() => setShowArchiveModal(false)}
+                    excludeSeasonId={activeSeasonId}
+                    availableSeasonIds={allPreviousSeasonIds}
+                />
+            )}
+
+            <div className="home-layout">
                 {/* Header */}
-                <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-                    <div className="text-center sm:text-right">
-                        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">ברוכים הבאים</h1>
-                        <p className="text-sm text-gray-600">
-                            שלום {user?.displayName || user?.email}
-                        </p>
+                <header className="home-header">
+                    <div className="home-header-top">
+                        <ThemeToggle className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white" />
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleLogout}
+                            className="home-header-btn gap-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+                        >
+                            <LogOut size={15} />
+                            <span className="hidden sm:inline">יציאה</span>
+                        </Button>
                     </div>
-                    <Button 
-                        variant="outline" 
-                        onClick={handleLogout}
-                        className="flex items-center gap-2 w-full sm:w-auto"
-                    >
-                        <LogOut size={16} />
-                        התנתק
-                    </Button>
-                </div>
 
-                {/* Main Menu */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                    {/* Pre-Season Bets */}
-                    <Card className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer touch-target"
-                          onClick={() => navigate('/pre-season-bets')}>
-                        <CardContent className="p-4 sm:p-6 text-center space-y-3">
-                            <Trophy className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-yellow-500" />
-                            <h3 className="text-base sm:text-lg font-semibold text-gray-900">הימורים מקדימים</h3>
-                            <p className="text-xs sm:text-sm text-gray-600">
-                                הימור על אלופה, גביע, יורדות ומלכי השערים
-                            </p>
-                        </CardContent>
-                    </Card>
+                    <div className="home-header-brand">
+                        <div className="home-header-logo">
+                            <Trophy size={20} />
+                        </div>
+                        <div>
+                            <p className="home-header-league">ניחושים · ליגת העל</p>
+                            <h1 className="home-header-user">{displayName}</h1>
+                        </div>
+                    </div>
 
-                    {/* Round Bets */}
-                    <Card className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer touch-target"
-                          onClick={() => navigate('/round-bets')}>
-                        <CardContent className="p-4 sm:p-6 text-center space-y-3">
-                            <Target className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-blue-500" />
-                            <h3 className="text-base sm:text-lg font-semibold text-gray-900">הימורי מחזור</h3>
-                            <p className="text-xs sm:text-sm text-gray-600">
-                                הימור על תוצאות מדויקות במחזור הנוכחי
-                            </p>
-                        </CardContent>
-                    </Card>
+                    <div className="home-header-meta">
+                        <span className="home-header-season">עונה {formatSeasonDisplay(activeSeasonId)}</span>
+                    </div>
+                </header>
 
-                    {/* Leaderboard */}
-                    <Card className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer touch-target"
-                          onClick={() => navigate('/leaderboard')}>
-                        <CardContent className="p-4 sm:p-6 text-center space-y-3">
-                            <Users className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-green-500" />
-                            <h3 className="text-base sm:text-lg font-semibold text-gray-900">טבלת מיקומים</h3>
-                            <p className="text-xs sm:text-sm text-gray-600">
-                                צפה בדירוג השחקנים והנקודות שלך
-                            </p>
-                        </CardContent>
-                    </Card>
-
-                    {/* All Users Bets */}
-                    <Card className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer touch-target"
-                          onClick={() => navigate('/all-users-bets')}>
-                        <CardContent className="p-4 sm:p-6 text-center space-y-3">
-                            <Users className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-pink-500" />
-                            <h3 className="text-base sm:text-lg font-semibold text-gray-900">הימורי כל המשתמשים</h3>
-                            <p className="text-xs sm:text-sm text-gray-600">
-                                צפייה בהימורים של כל המשתמשים
-                            </p>
-                        </CardContent>
-                    </Card>
-
-                    {/* Admin Panel */}
-                    {user?.role === 'admin' && (
-                        <Card className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer touch-target"
-                              onClick={() => navigate('/admin')}>
-                            <CardContent className="p-4 sm:p-6 text-center space-y-3">
-                                <Settings className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-purple-500" />
-                                <h3 className="text-base sm:text-lg font-semibold text-gray-900">ניהול מערכת</h3>
-                                <p className="text-xs sm:text-sm text-gray-600">
-                                    ניהול משחקים, מחזורים ומשתמשים
-                                </p>
-                            </CardContent>
-                        </Card>
-                    )}
-                </div>
-
-                {/* Quick Stats */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Card className="bg-white rounded-xl shadow-sm">
-                        <CardContent className="p-4 text-center space-y-2">
-                            <p className="text-xs sm:text-sm text-gray-600">מחזור נוכחי</p>
-                            <p className="text-lg sm:text-xl font-bold text-blue-600">
-                                {loading ? '...' : (currentRoundName || currentRoundNumber || 'אין')}
-                            </p>
-                        </CardContent>
-                    </Card>
-                    
+                {/* Live status strip */}
+                <section className="home-status-strip" aria-label="סטטוס מחזור">
+                    <div className="home-status-item home-status-item--highlight">
+                        <CalendarDays size={15} className="shrink-0 opacity-70" />
+                        <div className="min-w-0">
+                            <p className="home-status-label">מחזור נוכחי</p>
+                            <p className="home-status-value">{roundDisplay}</p>
+                        </div>
+                    </div>
                     {nextRoundTime && (
-                        <Card className="bg-white rounded-xl shadow-sm">
-                            <CardContent className="p-4 text-center space-y-2">
-                                <p className="text-xs sm:text-sm text-gray-600">מחזור הבא מתחיל</p>
-                                <p className="text-sm font-semibold text-green-600">
-                                    {nextRoundTime}
-                                </p>
-                            </CardContent>
-                        </Card>
+                        <div className="home-status-item">
+                            <Sparkles size={15} className="shrink-0 opacity-70" />
+                            <div className="min-w-0">
+                                <p className="home-status-label">מחזור הבא</p>
+                                <p className="home-status-value-sm">{nextRoundTime}</p>
+                            </div>
+                        </div>
                     )}
-                </div>
+                </section>
+
+                <NotificationToggle />
+
+                {/* Primary actions */}
+                <section aria-label="פעולות עיקריות">
+                    <p className="home-section-label">הימורים</p>
+                    <div className="home-actions-grid">
+                        <ActionCard
+                            icon={Target}
+                            title="הימורי מחזור"
+                            subtitle="ניחוש תוצאות מדויקות"
+                            onClick={() => navigate('/round-bets')}
+                            variant="primary"
+                            featured
+                        />
+                        <ActionCard
+                            icon={Trophy}
+                            title="הימורים מקדימים"
+                            subtitle="אלופה, גביע, יורדות ומלכי השערים"
+                            onClick={() => navigate('/pre-season-bets')}
+                            variant="gold"
+                            featured
+                        />
+                    </div>
+                </section>
+
+                {/* Secondary actions */}
+                <section aria-label="מידע וסטטיסטיקה">
+                    <p className="home-section-label">לוח תוצאות</p>
+                    <div className="home-actions-grid home-actions-grid--secondary">
+                        <ActionCard
+                            icon={BarChart3}
+                            title="טבלת מיקומים"
+                            subtitle="דירוג ונקודות"
+                            onClick={() => navigate('/leaderboard')}
+                        />
+                        <ActionCard
+                            icon={Users}
+                            title="הימורי משתמשים"
+                            subtitle="צפייה בהימורי המשתמשים למחזור/הימורים מקדימים"
+                            onClick={() => navigate('/all-users-bets')}
+                        />
+                        <ActionCard
+                            icon={History}
+                            title="ארכיון עונות"
+                            subtitle={
+                                allPreviousSeasonIds.length > 0
+                                    ? `${allPreviousSeasonIds.length} עונות קודמות`
+                                    : 'אין עדיין ארכיון'
+                            }
+                            onClick={() => setShowArchiveModal(true)}
+                        />
+                        {user?.role === 'admin' && (
+                            <ActionCard
+                                icon={Settings}
+                                title="ניהול מערכת"
+                                subtitle="מחזורים, משחקים ותוצאות"
+                                onClick={() => navigate('/admin')}
+                            />
+                        )}
+                    </div>
+                </section>
             </div>
-        </div>
+        </PageShell>
     );
-} 
+}

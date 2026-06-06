@@ -1,0 +1,37 @@
+{
+  "name": "ניחושים ליגת העל",
+  "short_name": "ניחושים ליגת העל",
+  "description": "ניחושים על משחקי ליגת העל הישראלית - הימורים מקדימים, הימורי מחזור וטבלת מיקומים",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "orientation": "portrait-primary",
+  "dir": "rtl",
+  "lang": "he",
+  "theme_color": "#0c1221",
+  "background_color": "#0c1221",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

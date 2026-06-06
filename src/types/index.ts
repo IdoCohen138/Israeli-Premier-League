@@ -4,6 +4,8 @@ export interface User {
   role: 'user' | 'admin';
   displayName?: string;
   photoURL?: string;
+  /** Opt-in to email reminders 24h and 1h before bet deadlines */
+  emailReminders?: boolean;
 }
 
 export interface Player {
@@ -43,6 +45,7 @@ export interface Round {
   matchesDetails?: Match[]; // פרטי המשחקים המלאים
   startTime: string;
   isActive: boolean;
+  bettingExtensions?: Record<string, string>; // uid -> ISO datetime (Israel local) until which user-specific betting is allowed
 }
 
 export interface Season {
@@ -111,6 +114,12 @@ export interface PlayerBets {
   exactPredictions: number;
   correctPredictionsMap?: Record<number, number>; // map של מחזור -> כמות ניחושי כיוון נכונים
   exactPredictionsMap?: Record<number, number>; // map של מחזור -> כמות ניחושי תוצאה מדויקת
+}
+
+export interface SeasonConfig {
+  activeSeasonId: string;
+  seasonOpen: boolean;
+  previousSeasonIds: string[];
 }
 
 export interface LeaderboardEntry {
