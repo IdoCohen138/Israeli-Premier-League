@@ -36,6 +36,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Log trigger info
+        run: |
+          echo "event=${{ github.event_name }}"
+          echo "diagnose_only=${{ inputs.diagnose_only }}"
+          echo "dry_run=${{ inputs.dry_run }}"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -48,7 +54,7 @@ jobs:
         run: npm ci
 
       - name: Diagnose (optional)
-        if: inputs.diagnose_only == 'true'
+        if: github.event_name == 'workflow_dispatch' && inputs.diagnose_only == 'true'
         working-directory: scripts/email-reminders
         run: node diagnose.mjs
         env:
@@ -58,7 +64,7 @@ jobs:
           APP_URL: ${{ vars.APP_URL }}
 
       - name: Send bet deadline reminders
-        if: inputs.diagnose_only != 'true'
+        if: github.event_name == 'schedule' || inputs.diagnose_only != 'true'
         working-directory: scripts/email-reminders
         run: node run.mjs
         env:
@@ -69,7 +75,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
 
       - name: Diagnose after run (on failure)
-        if: failure() && inputs.diagnose_only != 'true'
+        if: failure() && (github.event_name == 'schedule' || inputs.diagnose_only != 'true')
         working-directory: scripts/email-reminders
         run: node diagnose.mjs
         env:

@@ -1,7 +1,7 @@
 import admin from 'firebase-admin';
 import { formatIsraelDateTime, parseIsraelDateTime } from './israelTime.mjs';
 import { sendEmail } from './email.mjs';
-import { getReminderWindow } from './reminderWindows.mjs';
+import { describeReminderWindows, getReminderWindow } from './reminderWindows.mjs';
 import { formatRemainingSentence } from './timeRemaining.mjs';
 import { isDryRunEnv } from './dryRun.mjs';
 
@@ -107,6 +107,51 @@ async function getActiveSeasonId() {
 function parseDeadline(value) {
   const date = parseIsraelDateTime(value);
   return isNaN(date.getTime()) ? null : date;
+}
+
+function logDeadlineSnapshot({ seasonId, now, rounds, seasonStart }) {
+  const windows = describeReminderWindows();
+  console.log('Reminder windows:', windows);
+
+  for (const roundDoc of rounds) {
+    const data = roundDoc.data();
+    if (!data.startTime) {
+      console.log(`  Round ${roundDoc.id}: no startTime`);
+      continue;
+    }
+
+    const deadline = parseDeadline(data.startTime);
+    if (!deadline) {
+      console.log(`  Round ${roundDoc.id}: invalid startTime`, data.startTime);
+      continue;
+    }
+
+    const msUntil = deadline.getTime() - now.getTime();
+    if (msUntil <= 0) {
+      console.log(`  Round ${roundDoc.id}: closed at ${formatIsraelDateTime(deadline)}`);
+      continue;
+    }
+
+    const minutesLeft = Math.round(msUntil / 60000);
+    const window = getReminderWindow(msUntil);
+    console.log(
+      `  Round ${roundDoc.id}: ${minutesLeft} min until close (${formatIsraelDateTime(deadline)}) — window: ${window ?? 'none'}`
+    );
+  }
+
+  if (seasonStart) {
+    const deadline = parseDeadline(seasonStart);
+    if (deadline) {
+      const msUntil = deadline.getTime() - now.getTime();
+      if (msUntil > 0) {
+        const minutesLeft = Math.round(msUntil / 60000);
+        const window = getReminderWindow(msUntil);
+        console.log(
+          `  Pre-season: ${minutesLeft} min until close (${formatIsraelDateTime(deadline)}) — window: ${window ?? 'none'}`
+        );
+      }
+    }
+  }
 }
 
 function collectRoundReminders(seasonId, now, rounds) {
@@ -245,6 +290,14 @@ export async function processBetDeadlineReminders() {
 
   if (pendingReminders.length === 0) {
     console.log('No reminders due in this run (deadline uses round.startTime, not match time)');
+    console.log('Upcoming deadlines snapshot:');
+    logDeadlineSnapshot({
+      seasonId,
+      now,
+      rounds: roundsSnapshot.docs,
+      seasonStart: seasonData?.seasonStart,
+    });
+    console.log('emailReminderLog is written only after a successful email send');
     return;
   }
 
