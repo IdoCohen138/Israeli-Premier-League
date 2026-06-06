@@ -3,6 +3,7 @@ import { formatIsraelDateTime, parseIsraelDateTime } from './israelTime.mjs';
 import { sendEmail } from './email.mjs';
 import { getReminderWindow } from './reminderWindows.mjs';
 import { formatRemainingSentence } from './timeRemaining.mjs';
+import { isDryRunEnv } from './dryRun.mjs';
 
 function getDb() {
   return admin.firestore();
@@ -170,8 +171,8 @@ async function sendReminderToSubscriber(subscriber, reminder, { appUrl, msUntil,
   }
 
   if (dryRun) {
-    console.log(`  Dry run: would email ${subscriber.email} — ${buildSubject(reminder, msUntil)} (${docId})`);
-    return { sent: false, skipped: false };
+    console.log(`  DRY RUN - would email ${subscriber.email} — ${buildSubject(reminder, msUntil)} (${docId})`);
+    return { sent: false, skipped: false, dryRun: true };
   }
 
   const result = await sendEmail({
@@ -201,7 +202,11 @@ async function sendReminderToSubscriber(subscriber, reminder, { appUrl, msUntil,
 
 export async function processBetDeadlineReminders() {
   const appUrl = process.env.APP_URL ?? 'https://israeli-premier-league.web.app';
-  const dryRun = process.env.DRY_RUN === '1';
+  const dryRun = isDryRunEnv();
+
+  if (dryRun) {
+    console.log('DRY RUN - no emails sent');
+  }
 
   if (!process.env.RESEND_API_KEY && !dryRun) {
     throw new Error('RESEND_API_KEY secret is missing — add it in GitHub → Settings → Secrets');
@@ -253,14 +258,24 @@ export async function processBetDeadlineReminders() {
     let sentCount = 0;
     let skippedCount = 0;
     let failedCount = 0;
+    let dryRunWouldSendCount = 0;
 
     for (const subscriber of subscribers) {
       const outcome = await sendReminderToSubscriber(subscriber, reminder, { appUrl, msUntil, dryRun });
       if (outcome.sent) sentCount += 1;
       else if (outcome.skipped) skippedCount += 1;
+      else if (outcome.dryRun) dryRunWouldSendCount += 1;
       else failedCount += 1;
     }
 
-    console.log(`  Summary: sent=${sentCount}, skipped=${skippedCount}, failed=${failedCount}`);
+    if (dryRun) {
+      console.log(`  Summary: dryRunWouldSend=${dryRunWouldSendCount}, skipped=${skippedCount}`);
+    } else {
+      console.log(`  Summary: sent=${sentCount}, skipped=${skippedCount}, failed=${failedCount}`);
+    }
+  }
+
+  if (dryRun && pendingReminders.length > 0) {
+    console.log('DRY RUN - no emails sent');
   }
 }
