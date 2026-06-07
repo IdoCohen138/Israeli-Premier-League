@@ -176,16 +176,23 @@ export default function HomePage() {
 
                 {/* Live status strip */}
                 <section className="home-status-strip" aria-label="סטטוס מחזור">
-                    <div className="home-status-item home-status-item--highlight">
-                        <CalendarDays size={15} className="shrink-0 opacity-70" />
-                        <div className="min-w-0">
-                            <p className="home-status-label">מחזור נוכחי</p>
-                            <p className="home-status-value">{roundDisplay}</p>
+                    <div className="home-current-round">
+                        <div className="home-current-round-icon" aria-hidden>
+                            <CalendarDays size={18} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="home-current-round-label">
+                                <span className="home-current-round-dot" />
+                                מחזור נוכחי
+                            </p>
+                            <p className="home-current-round-value">{roundDisplay}</p>
                         </div>
                     </div>
                     {nextRoundTime && (
-                        <div className="home-status-item">
-                            <Sparkles size={15} className="shrink-0 opacity-70" />
+                        <div className="home-status-item home-status-item--next">
+                            <div className="home-status-next-icon" aria-hidden>
+                                <Sparkles size={15} />
+                            </div>
                             <div className="min-w-0">
                                 <p className="home-status-label">מחזור הבא</p>
                                 <p className="home-status-value-sm">{nextRoundTime}</p>

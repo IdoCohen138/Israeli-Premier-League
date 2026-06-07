@@ -492,19 +492,77 @@
   }
 
   .home-status-strip {
-    @apply grid grid-cols-1 gap-2 sm:grid-cols-2;
+    @apply -mt-1 grid grid-cols-1 gap-2.5 sm:grid-cols-2;
+  }
+
+  .home-current-round {
+    @apply relative flex items-center gap-3.5 overflow-hidden rounded-2xl px-4 py-3.5 shadow-lg shadow-sky-900/15;
+    background-image: linear-gradient(
+      125deg,
+      hsl(215 72% 42%) 0%,
+      hsl(220 68% 50%) 45%,
+      hsl(212 65% 38%) 100%
+    );
+  }
+
+  .home-current-round::before {
+    content: '';
+    position: absolute;
+    top: -2.5rem;
+    left: -1.5rem;
+    height: 6rem;
+    width: 6rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .home-current-round::after {
+    content: '';
+    position: absolute;
+    bottom: -2rem;
+    right: -1rem;
+    height: 5rem;
+    width: 5rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .dark .home-current-round {
+    @apply shadow-sky-950/30;
+    background-image: linear-gradient(
+      125deg,
+      hsl(215 58% 26%) 0%,
+      hsl(220 54% 32%) 45%,
+      hsl(212 52% 22%) 100%
+    );
+  }
+
+  .home-current-round-icon {
+    @apply relative z-[1] flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/15 text-white shadow-inner backdrop-blur-sm;
+  }
+
+  .home-current-round-label {
+    @apply relative z-[1] flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-white/65;
+  }
+
+  .home-current-round-dot {
+    @apply h-1.5 w-1.5 shrink-0 rounded-full bg-sky-100 shadow-[0_0_8px_rgba(186,230,253,0.9)];
+  }
+
+  .home-current-round-value {
+    @apply relative z-[1] mt-1 truncate text-base font-bold leading-tight text-white sm:text-lg;
   }
 
   .home-status-item {
     @apply flex items-center gap-3 rounded-xl border border-border/60 bg-card px-3.5 py-3 shadow-sm;
   }
 
-  .home-status-item--highlight {
-    @apply border-emerald-500/25 bg-emerald-500/[0.06] dark:border-emerald-400/20 dark:bg-emerald-500/[0.08];
+  .home-status-item--next {
+    @apply border-sky-500/15 bg-sky-500/[0.04] dark:border-sky-400/15 dark:bg-sky-500/[0.06];
   }
 
-  .home-status-item--highlight svg {
-    @apply text-emerald-600 dark:text-emerald-400;
+  .home-status-next-icon {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400;
   }
 
   .home-status-label {
