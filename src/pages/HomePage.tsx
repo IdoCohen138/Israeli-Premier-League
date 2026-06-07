@@ -19,7 +19,6 @@ import { formatSeasonDisplay, getHomeRoundInfo, listSeasonIds } from "@/lib/seas
 import PreviousSeasonTableModal, { getPreviousSeasonDismissKey } from "@/components/PreviousSeasonTableModal";
 import PageShell from "@/components/layout/PageShell";
 import ThemeToggle from "@/components/layout/ThemeToggle";
-import NotificationToggle from "@/components/home/NotificationToggle";
 import { cn } from "@/lib/utils";
 
 interface ActionCardProps {
@@ -194,8 +193,6 @@ export default function HomePage() {
                         </div>
                     )}
                 </section>
-
-                <NotificationToggle />
 
                 {/* Primary actions */}
                 <section aria-label="פעולות עיקריות">

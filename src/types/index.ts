@@ -4,8 +4,6 @@ export interface User {
   role: 'user' | 'admin';
   displayName?: string;
   photoURL?: string;
-  /** Opt-in to email reminders 24h and 1h before bet deadlines */
-  emailReminders?: boolean;
 }
 
 export interface Player {

@@ -122,12 +122,6 @@ service cloud.firestore {
       }
     }
 
-    // Email reminder send log — written only by Cloud Functions (Admin SDK).
-    match /emailReminderLog/{reminderId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
     // Deny everything else by default (no rule = deny in Firestore).
   }
 }

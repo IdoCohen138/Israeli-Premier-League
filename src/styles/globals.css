@@ -391,62 +391,6 @@
     @apply mt-0.5 text-xs font-medium leading-snug text-foreground;
   }
 
-  .home-notifications-toggle {
-    @apply flex w-full items-center justify-between gap-3 rounded-xl border border-border/60 bg-card p-3.5 text-right shadow-sm transition-all;
-  }
-
-  .home-notifications-toggle:hover:not(:disabled) {
-    @apply border-border shadow-md;
-  }
-
-  .home-notifications-toggle--on {
-    @apply border-sky-500/30 bg-gradient-to-bl from-sky-500/[0.08] to-transparent;
-  }
-
-  .home-notifications-icon {
-    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-500/25 bg-sky-500/10 text-sky-600 dark:text-sky-400;
-  }
-
-  .home-notifications-title {
-    @apply text-sm font-bold text-foreground;
-  }
-
-  .home-notifications-desc {
-    @apply mt-0.5 text-[11px] leading-snug text-muted-foreground;
-  }
-
-  .home-notifications-timing {
-    @apply mt-1.5 list-none space-y-0.5 pr-0 text-[11px] leading-snug text-foreground/90;
-  }
-
-  .home-notifications-timing li {
-    @apply relative pr-3.5 before:absolute before:right-0 before:top-[0.45em] before:h-1 before:w-1 before:rounded-full before:bg-sky-500/70;
-  }
-
-  .home-notifications-email-label {
-    @apply mt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground;
-  }
-
-  .home-notifications-email {
-    @apply mt-0.5 truncate text-[11px] font-medium leading-snug text-foreground;
-  }
-
-  .home-notifications-switch {
-    @apply relative h-6 w-11 shrink-0 rounded-full bg-muted transition-colors;
-  }
-
-  .home-notifications-toggle--on .home-notifications-switch {
-    @apply bg-sky-500;
-  }
-
-  .home-notifications-switch-knob {
-    @apply absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform;
-  }
-
-  .home-notifications-toggle--on .home-notifications-switch-knob {
-    @apply -translate-x-5;
-  }
-
   .home-section-label {
     @apply mb-2 px-0.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground;
   }
