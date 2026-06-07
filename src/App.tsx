@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SeasonProvider, useSeason } from './contexts/SeasonContext';
@@ -26,6 +27,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [pathname]);
+
+  return null;
+}
+
 function SeasonGate({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const { seasonOpen, loading } = useSeason();
@@ -52,6 +63,7 @@ function SeasonGate({ children }: { children: React.ReactNode }) {
 function AppRoutesContent() {
   return (
     <SeasonGate>
+      <ScrollToTop />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
