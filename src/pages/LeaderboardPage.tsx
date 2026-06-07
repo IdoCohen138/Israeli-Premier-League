@@ -2,13 +2,29 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import { Trophy, Medal, Award, TrendingUp, Users } from "lucide-react";
+import {
+    Trophy,
+    Medal,
+    Award,
+    TrendingUp,
+    Users,
+    ChevronDown,
+    ChevronUp,
+    Target,
+    Crosshair,
+} from "lucide-react";
 import PageShell from "@/components/layout/PageShell";
 import PageHeader from "@/components/layout/PageHeader";
 import LoadingScreen from "@/components/layout/LoadingScreen";
 import { PlayerBets } from "@/types";
 import { getLeaderboard } from "@/lib/playerBets";
 import { getCurrentSeason, getCurrentSeasonData, getLastCalculatedRound, getSortedRounds } from "@/lib/season";
+import { cn } from "@/lib/utils";
+
+function sumMap(map?: Record<number, number>): number {
+    if (!map) return 0;
+    return Object.values(map).reduce((sum, count) => sum + count, 0);
+}
 
 export default function LeaderboardPage() {
     const { user } = useAuth();
@@ -21,6 +37,8 @@ export default function LeaderboardPage() {
     const [roundNames, setRoundNames] = useState<Record<number, string>>({});
     const [sortedRoundNumbers, setSortedRoundNumbers] = useState<number[]>([]);
     const [lastCalculatedRound, setLastCalculatedRound] = useState<number | null>(null);
+    const [expandedUids, setExpandedUids] = useState<Set<string>>(new Set());
+    const [showRoundBreakdown, setShowRoundBreakdown] = useState(false);
 
     useEffect(() => {
         setCurrentSeason(getCurrentSeason());
@@ -55,11 +73,9 @@ export default function LeaderboardPage() {
 
     const loadLeaderboard = async () => {
         try {
-            // טעינת טבלת מיקומים מהמערכת החדשה
             const leaderboardData = await getLeaderboard();
             setLeaderboard(leaderboardData);
 
-            // מציאת המיקום של המשתמש הנוכחי
             if (user) {
                 const userEntry = leaderboardData.find(entry => entry.uid === user.uid);
                 if (userEntry) {
@@ -92,6 +108,15 @@ export default function LeaderboardPage() {
         }
     };
 
+    const toggleExpanded = (uid: string) => {
+        setExpandedUids((prev) => {
+            const next = new Set(prev);
+            if (next.has(uid)) next.delete(uid);
+            else next.add(uid);
+            return next;
+        });
+    };
+
     const getRankIcon = (rank: number) => {
         switch (rank) {
             case 1:
@@ -101,7 +126,7 @@ export default function LeaderboardPage() {
             case 3:
                 return <Award className="h-5 w-5 text-amber-600" />;
             default:
-                return <span className="text-sm font-medium text-muted-foreground">#{rank}</span>;
+                return <span className="w-5 text-center text-sm font-semibold text-muted-foreground">{rank}</span>;
         }
     };
 
@@ -113,6 +138,12 @@ export default function LeaderboardPage() {
             default: return '';
         }
     };
+
+    const lastRoundLabel = lastCalculatedRound
+        ? roundNames[lastCalculatedRound] || `מחזור ${lastCalculatedRound}`
+        : 'מחזור אחרון';
+
+    const roundsNewestFirst = [...sortedRoundNumbers].reverse();
 
     if (loading) return <LoadingScreen label="טוען טבלת מיקומים..." />;
 
@@ -170,70 +201,92 @@ export default function LeaderboardPage() {
                             <Trophy className="h-4 w-4 text-amber-400" />
                             דירוג שחקנים
                         </CardTitle>
+                        <p className="text-xs text-muted-foreground">לחץ על שחקן לפרטים נוספים</p>
                     </CardHeader>
-                    <CardContent className="p-0 sm:p-0">
-                        <div className="overflow-x-auto scrollbar-none">
-                            <table className="table-compact w-full">
-                                <thead>
-                                    <tr className="border-b border-border/80 text-muted-foreground">
-                                        <th className="text-right font-medium">#</th>
-                                        <th className="text-right font-medium">שחקן</th>
-                                        <th className="text-right font-medium">סה"כ</th>
-                                        {showPreSeasonColumn && (
-                                            <th className="text-right font-medium">מקדימים</th>
-                                        )}
-                                        <th className="text-right font-medium">
-                                            {lastCalculatedRound
-                                                ? roundNames[lastCalculatedRound] || `מחזור ${lastCalculatedRound}`
-                                                : 'מחזור'}
-                                        </th>
-                                        <th className="text-right font-medium">נכונות</th>
-                                        <th className="text-right font-medium">מדויקות</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {leaderboard.map((entry, index) => (
-                                        <tr key={entry.uid} className={`border-b border-border/50 ${getRankColor(index + 1)}`}>
-                                            <td className="py-2">{getRankIcon(index + 1)}</td>
-                                            <td className="py-2 font-medium">{entry.displayName || 'שחקן'}</td>
-                                            <td className="py-2 font-bold text-primary">{entry.totalPoints || 0}</td>
-                                            {showPreSeasonColumn && (
-                                                <td className="py-3 px-4">
-                                                    <span className="text-green-600 font-medium">
-                                                        {entry.preSeasonPoints || 0}
-                                                    </span>
-                                                    {entry.preSeasonPoints > 0 && (
-                                                        <div className="text-xs text-green-500 mt-1">✓ הימורים מקדימים</div>
-                                                    )}
-                                                </td>
+                    <CardContent className="p-0">
+                        <div className="leaderboard-list">
+                            {leaderboard.map((entry, index) => {
+                                const rank = index + 1;
+                                const isExpanded = expandedUids.has(entry.uid!);
+                                const isCurrentUser = entry.uid === user?.uid;
+                                const lastRoundPoints = lastCalculatedRound
+                                    ? (entry.roundPoints?.[lastCalculatedRound] ?? 0)
+                                    : 0;
+
+                                return (
+                                    <div
+                                        key={entry.uid}
+                                        className={cn("leaderboard-item", getRankColor(rank))}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleExpanded(entry.uid!)}
+                                            className={cn(
+                                                "leaderboard-item-main",
+                                                isCurrentUser && "leaderboard-item-main--current"
                                             )}
-                                            <td className="py-3 px-4">
-                                                <span className="font-medium text-sky-400">
-                                                    {lastCalculatedRound
-                                                        ? (entry.roundPoints?.[lastCalculatedRound] ?? 0)
-                                                        : 0}
+                                            aria-expanded={isExpanded}
+                                        >
+                                            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                                <span className="shrink-0">{getRankIcon(rank)}</span>
+                                                <span className="truncate font-medium">
+                                                    {entry.displayName || 'שחקן'}
+                                                    {isCurrentUser && (
+                                                        <span className="mr-1.5 text-[10px] font-normal text-primary">(אתה)</span>
+                                                    )}
                                                 </span>
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                <span className="text-muted-foreground">
-                                                    {(() => {
-                                                        if (!entry.correctPredictionsMap) return 0;
-                                                        return Object.values(entry.correctPredictionsMap).reduce((sum, count) => sum + count, 0);
-                                                    })()}
+                                            </div>
+                                            <div className="flex shrink-0 items-center gap-2">
+                                                <span className="text-base font-bold tabular-nums text-primary sm:text-lg">
+                                                    {entry.totalPoints || 0}
                                                 </span>
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                <span className="text-purple-600 font-medium">
-                                                    {(() => {
-                                                        if (!entry.exactPredictionsMap) return 0;
-                                                        return Object.values(entry.exactPredictionsMap).reduce((sum, count) => sum + count, 0);
-                                                    })()}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                                <ChevronDown
+                                                    size={16}
+                                                    className={cn(
+                                                        "text-muted-foreground transition-transform duration-200",
+                                                        isExpanded && "rotate-180"
+                                                    )}
+                                                />
+                                            </div>
+                                        </button>
+
+                                        {isExpanded && (
+                                            <div className="leaderboard-item-details">
+                                                <div className="leaderboard-stat">
+                                                    <p className="leaderboard-stat-label">{lastRoundLabel}</p>
+                                                    <p className="leaderboard-stat-value text-sky-500">{lastRoundPoints}</p>
+                                                </div>
+                                                <div className="leaderboard-stat">
+                                                    <p className="leaderboard-stat-label flex items-center justify-center gap-1">
+                                                        <Target size={11} />
+                                                        נכונות
+                                                    </p>
+                                                    <p className="leaderboard-stat-value text-muted-foreground">
+                                                        {sumMap(entry.correctPredictionsMap)}
+                                                    </p>
+                                                </div>
+                                                <div className="leaderboard-stat">
+                                                    <p className="leaderboard-stat-label flex items-center justify-center gap-1">
+                                                        <Crosshair size={11} />
+                                                        מדויקות
+                                                    </p>
+                                                    <p className="leaderboard-stat-value text-purple-500">
+                                                        {sumMap(entry.exactPredictionsMap)}
+                                                    </p>
+                                                </div>
+                                                {showPreSeasonColumn && (
+                                                    <div className="leaderboard-stat">
+                                                        <p className="leaderboard-stat-label">הימורים מקדימים</p>
+                                                        <p className="leaderboard-stat-value text-emerald-500">
+                                                            {entry.preSeasonPoints || 0}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </CardContent>
                 </Card>
@@ -249,46 +302,107 @@ export default function LeaderboardPage() {
                     </CardContent>
                 </Card>
 
-                {leaderboard.length > 0 && (
-                    <Card>
-                        <CardHeader className="pb-2">
-                            <CardTitle className="flex items-center gap-2 text-base">
-                                <TrendingUp className="h-4 w-4 text-sky-400" />
-                                נקודות לפי מחזור
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <div className="overflow-x-auto scrollbar-none">
-                                <table className="table-compact w-full">
-                                    <thead>
-                                    <tr className="border-b border-border/80">
-                                        <th className="text-center font-medium">מחזור</th>
-                                        {leaderboard.map(entry => (
-                                            <th key={entry.uid} className="min-w-[3rem] text-center font-medium">
-                                                <div className="truncate text-[10px]" title={entry.displayName || ''}>
-                                                    {entry.displayName?.split(' ')[0] || '—'}
-                                                </div>
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                    <tbody>
-                                        {sortedRoundNumbers.map((round, index) => (
-                                                <tr key={round} className={index % 2 === 0 ? 'bg-secondary/30' : ''}>
-                                                    <td className="whitespace-nowrap text-center text-xs font-semibold">{roundNames[round] || round}</td>
-                                                    {leaderboard.map(entry => (
-                                                        <td key={entry.uid} className="text-center font-medium text-primary">
-                                                            {entry.roundPoints?.[round] ?? 0}
-                                                        </td>
-                                                    ))}
+                {leaderboard.length > 0 && sortedRoundNumbers.length > 0 && (
+                    <Card className="overflow-hidden">
+                        <CardContent className="space-y-0 p-3 sm:p-4">
+                            <button
+                                type="button"
+                                onClick={() => setShowRoundBreakdown((v) => !v)}
+                                className={cn(
+                                    "round-breakdown-toggle",
+                                    showRoundBreakdown && "rounded-b-none border-b-0"
+                                )}
+                                aria-expanded={showRoundBreakdown}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <TrendingUp className="h-4 w-4 shrink-0 text-sky-400" />
+                                    <div>
+                                        <p className="text-sm font-semibold">נקודות לפי מחזור</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {leaderboard.length} שחקנים · {sortedRoundNumbers.length} מחזורים
+                                        </p>
+                                    </div>
+                                </div>
+                                {showRoundBreakdown ? (
+                                    <ChevronUp size={18} className="shrink-0 text-muted-foreground" />
+                                ) : (
+                                    <ChevronDown size={18} className="shrink-0 text-muted-foreground" />
+                                )}
+                            </button>
+
+                            {showRoundBreakdown && (
+                                <div className="round-breakdown-panel">
+                                    <p className="border-b border-border/50 px-3 py-1.5 text-[10px] text-muted-foreground sm:text-xs">
+                                        מחזורים אחרונים ליד השם · גלול לשאר המחזורים
+                                    </p>
+                                    <div className="round-breakdown-scroll">
+                                        <table className="round-points-table">
+                                            <thead>
+                                                <tr>
+                                                    <th className="sticky-player-col px-3 text-right">שחקן</th>
+                                                    <th className="sticky-total-col">סה"כ</th>
+                                                    {roundsNewestFirst.map((round) => {
+                                                        const name = roundNames[round] || `מחזור ${round}`;
+                                                        return (
+                                                            <th
+                                                                key={round}
+                                                                className="round-col-header"
+                                                                title={name}
+                                                            >
+                                                                <span className="round-col-header-text">{name}</span>
+                                                            </th>
+                                                        );
+                                                    })}
                                                 </tr>
-                                            ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                            </thead>
+                                            <tbody>
+                                                {leaderboard.map((entry, index) => (
+                                                    <tr
+                                                        key={entry.uid}
+                                                        className={cn(
+                                                            index % 2 === 0 ? 'bg-secondary/20' : '',
+                                                            entry.uid === user?.uid && 'round-points-row--current'
+                                                        )}
+                                                    >
+                                                        <td className="sticky-player-col px-3">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                                                    {index + 1}
+                                                                </span>
+                                                                <span className="truncate text-xs sm:text-sm">
+                                                                    {entry.displayName || 'שחקן'}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="sticky-total-col font-bold text-primary">
+                                                            {entry.totalPoints || 0}
+                                                        </td>
+                                                        {roundsNewestFirst.map((round) => {
+                                                            const name = roundNames[round] || `מחזור ${round}`;
+                                                            const pts = entry.roundPoints?.[round] ?? 0;
+                                                            return (
+                                                                <td
+                                                                    key={round}
+                                                                    className={cn(
+                                                                        "round-col",
+                                                                        pts > 0 && "round-col-has-points"
+                                                                    )}
+                                                                    title={`${name}: ${pts} נקודות`}
+                                                                >
+                                                                    {pts > 0 ? pts : '·'}
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 )}
         </PageShell>
     );
-} 
+}

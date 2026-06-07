@@ -248,6 +248,134 @@
     @apply border-orange-600/20 bg-orange-600/5;
   }
 
+  .leaderboard-list {
+    @apply divide-y divide-border/60;
+  }
+
+  .leaderboard-item {
+    @apply transition-colors;
+  }
+
+  .leaderboard-item-main {
+    @apply flex w-full items-center justify-between gap-3 px-3 py-3 text-right transition-colors hover:bg-secondary/40 sm:px-4;
+  }
+
+  .leaderboard-item-main--current {
+    @apply bg-primary/5;
+  }
+
+  .leaderboard-item-details {
+    @apply grid grid-cols-2 gap-2 border-t border-border/40 bg-secondary/20 px-3 py-2.5 sm:grid-cols-4 sm:px-4;
+  }
+
+  .leaderboard-stat {
+    @apply rounded-lg border border-border/50 bg-card/80 px-2.5 py-2 text-center;
+  }
+
+  .leaderboard-stat-label {
+    @apply text-[10px] font-medium text-muted-foreground sm:text-xs;
+  }
+
+  .leaderboard-stat-value {
+    @apply mt-0.5 text-sm font-bold tabular-nums;
+  }
+
+  .round-breakdown-toggle {
+    @apply flex w-full items-center justify-between gap-3 rounded-xl border border-border/80 bg-secondary/30 px-3 py-3 text-right transition-colors hover:bg-secondary/50 sm:px-4;
+  }
+
+  .round-breakdown-panel {
+    @apply overflow-hidden rounded-b-xl border border-border/80 bg-card/50;
+  }
+
+  .round-breakdown-scroll {
+    @apply max-h-[min(60vh,28rem)] overflow-auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .round-points-table {
+    --round-player-col-width: 6.75rem;
+    --round-total-col-width: 2.25rem;
+    @apply w-full border-separate border-spacing-0 text-xs;
+  }
+
+  @media (min-width: 640px) {
+    .round-points-table {
+      --round-player-col-width: 8.5rem;
+      --round-total-col-width: 2.75rem;
+    }
+  }
+
+  .round-points-table thead {
+    @apply sticky top-0 z-20 bg-secondary/95 backdrop-blur-sm;
+  }
+
+  .round-points-table thead tr {
+    height: 5.25rem;
+  }
+
+  @media (min-width: 640px) {
+    .round-points-table thead tr {
+      height: 6rem;
+    }
+  }
+
+  .round-points-table th,
+  .round-points-table td {
+    @apply border-b border-border/50 px-1 py-2 text-center tabular-nums;
+  }
+
+  .round-points-table th.round-col-header {
+    @apply min-w-[2.125rem] max-w-[2.75rem] px-0.5 align-bottom;
+    vertical-align: bottom;
+  }
+
+  .round-col-header-text {
+    display: inline-block;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    @apply max-h-[4.75rem] overflow-hidden text-ellipsis text-[9px] font-semibold leading-tight text-muted-foreground sm:max-h-[5.5rem] sm:text-[10px];
+    white-space: nowrap;
+  }
+
+  .round-points-table td.round-col {
+    @apply min-w-[2.125rem] max-w-[2.75rem] text-[11px] text-muted-foreground/80 sm:text-xs;
+  }
+
+  .round-points-table td.round-col-has-points {
+    @apply font-semibold text-primary;
+  }
+
+  .round-points-table .sticky-player-col {
+    @apply sticky right-0 z-[12] w-[var(--round-player-col-width)] min-w-[var(--round-player-col-width)] max-w-[var(--round-player-col-width)] border-l border-border/50 bg-card text-right font-medium shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.12)] dark:shadow-[-6px_0_10px_-6px_rgba(0,0,0,0.35)];
+  }
+
+  .round-points-table .sticky-total-col {
+    @apply sticky z-[11] w-[var(--round-total-col-width)] min-w-[var(--round-total-col-width)] border-l border-border/40 bg-card text-[11px] font-semibold shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.3)] sm:text-xs;
+    right: var(--round-player-col-width);
+  }
+
+  .round-points-table thead .sticky-player-col,
+  .round-points-table thead .sticky-total-col {
+    @apply bg-secondary/95;
+  }
+
+  .round-points-table tbody tr:nth-child(even) .sticky-player-col,
+  .round-points-table tbody tr:nth-child(even) .sticky-total-col {
+    @apply bg-secondary/30;
+  }
+
+  .round-points-table tbody tr:nth-child(odd) .sticky-player-col,
+  .round-points-table tbody tr:nth-child(odd) .sticky-total-col {
+    @apply bg-card;
+  }
+
+  .round-points-table tbody tr.round-points-row--current .sticky-player-col,
+  .round-points-table tbody tr.round-points-row--current .sticky-total-col {
+    @apply bg-primary/5;
+  }
+
   .app-table-wrap {
     @apply overflow-x-auto rounded-xl border border-border/80;
   }
@@ -313,21 +441,21 @@
   }
 
   .home-header {
-    @apply relative -mx-3 overflow-hidden rounded-b-2xl bg-[hsl(152_55%_22%)] px-4 pb-5 pt-3 shadow-lg sm:-mx-4;
+    @apply relative -mx-3 overflow-hidden rounded-b-2xl bg-[hsl(215_55%_24%)] px-4 pb-5 pt-3 shadow-lg sm:-mx-4;
     background-image: linear-gradient(
       135deg,
-      hsl(152 55% 18%) 0%,
-      hsl(152 50% 24%) 50%,
-      hsl(158 45% 20%) 100%
+      hsl(215 58% 20%) 0%,
+      hsl(220 52% 28%) 50%,
+      hsl(212 48% 22%) 100%
     );
   }
 
   .dark .home-header {
     background-image: linear-gradient(
       135deg,
-      hsl(152 45% 14%) 0%,
-      hsl(152 40% 20%) 50%,
-      hsl(158 38% 16%) 100%
+      hsl(215 48% 14%) 0%,
+      hsl(220 42% 20%) 50%,
+      hsl(212 40% 16%) 100%
     );
   }
 
