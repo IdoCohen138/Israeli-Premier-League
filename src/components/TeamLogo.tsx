@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 
 interface TeamLogoProps {
   teamId: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
 }
 
@@ -17,14 +17,17 @@ const teamUIDMap: Record<string, string> = {
   hj: 'f0MbYhgWEDhqMHDuN6wM',
   hk: '1jlD8ejl9jizwhrvj09h',
   hp: 'nSZHZZ3KsWLqaJPn6cKN',
+  hrg: 'Bwi6Mi6QTOelJTzic52N',
   ht: 'E1Um0HTHKxbtfwX0aZeD',
   ma: 'oeEIKdN6KIKgnwgFZvOw',
   mh: 'ZKS8tiett2ckKRglp6Kg',
   mn: 'usx5s2KEmG0hgFewy8XC',
+  mpt: '31x6VEMCcBs7DQibj5BG',
   mt: '6xIqFlWU7Vd4iI0bR3sI',
 };
 
 const sizeClasses = {
+  xs: 'h-6 w-6',
   sm: 'h-7 w-7 sm:h-8 sm:w-8',
   md: 'h-8 w-8 sm:h-9 sm:w-9',
   lg: 'h-11 w-11 sm:h-12 sm:w-12',

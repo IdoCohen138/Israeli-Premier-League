@@ -12,8 +12,8 @@
   "orientation": "portrait-primary",
   "dir": "rtl",
   "lang": "he",
-  "theme_color": "#0c1221",
-  "background_color": "#0c1221",
+  "theme_color": "#2d323c",
+  "background_color": "#2d323c",
   "icons": [
     {
       "src": "/icons/icon-192.png",

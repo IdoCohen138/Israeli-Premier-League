@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "deploy": "npm run build && firebase deploy --only hosting --project israeli-premier-league",
     "generate-icons": "node scripts/generate-pwa-icons.mjs",
+    "copy-season-teams": "node scripts/copy-season-teams.cjs",
+    "copy-season-players": "node scripts/copy-season-players.cjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -35,6 +38,8 @@
     "eslint": "^9.29.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
+    "firebase-admin": "^14.0.0",
+    "firebase-tools": "^15.20.0",
     "globals": "^16.2.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",

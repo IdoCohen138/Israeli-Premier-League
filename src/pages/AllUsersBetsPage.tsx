@@ -13,14 +13,13 @@ import StatusBanner from '@/components/layout/StatusBanner';
 import { Clock, CheckCircle } from 'lucide-react';
 import { Team, Player } from '@/types';
 
-const PRESEASON_BET_LABELS: Record<string, string> = {
-  champion: 'אלופה',
-  cup: 'זוכת גביע',
-  relegation1: 'יורדת 1',
-  relegation2: 'יורדת 2',
-  topScorer: 'מלך שערים',
-  topAssists: 'מלך בישולים',
-};
+const PRESEASON_CATEGORIES = [
+  { key: 'champion', label: 'אלופה' },
+  { key: 'cup', label: 'זוכת גביע' },
+  { key: 'relegation', label: 'יורדות ליגה' },
+  { key: 'topScorer', label: 'מלך שערים' },
+  { key: 'topAssists', label: 'מלך בישולים' },
+] as const;
 
 interface UserInfo {
   uid: string;
@@ -220,6 +219,8 @@ const AllUsersBetsPage: React.FC = () => {
   }, [activeTab]);
 
   // Helper function to get cell styling
+  const isUniqueBet = (bet?: Bet) => bet?.points === 6 || bet?.points === 2;
+
   const getCellStyling = (bet: Bet | undefined, matchInfo: MatchInfo) => {
     if (matchInfo.isCancelled) {
       return { bg: 'bet-miss', text: 'text-muted-foreground' };
@@ -228,32 +229,178 @@ const AllUsersBetsPage: React.FC = () => {
       return { bg: 'bet-miss', text: 'text-foreground' };
     }
     if (bet.points === 6 || bet.points === 3) {
-      return { bg: 'bet-hit-exact', text: 'font-bold' };
+      return {
+        bg: isUniqueBet(bet) ? 'bet-hit-exact bet-hit-unique' : 'bet-hit-exact',
+        text: 'font-bold',
+      };
     }
     if (bet.points === 2 || bet.points === 1) {
-      return { bg: 'bet-hit-direction', text: 'font-bold' };
+      return {
+        bg: isUniqueBet(bet) ? 'bet-hit-direction bet-hit-unique' : 'bet-hit-direction',
+        text: 'font-bold',
+      };
     }
     return { bg: 'bet-miss', text: 'text-foreground' };
   };
 
-  const getPointsPillClass = (points: number) => {
-    if (points === 6 || points === 3) return 'points-pill-exact';
-    if (points === 2 || points === 1) return 'points-pill-direction';
-    return 'text-muted-foreground text-xs';
-  };
-
-  // Helper function to get bonus icon
-  const getBonusIcon = (bet: Bet | undefined) => {
-    if (!bet?.points) return null;
-    if (bet.points === 6 || bet.points === 2) {
-      return <span title="בונוס בלעדיות" className="text-violet-400 text-sm">★</span>;
+  const getPointsPillClass = (points: number, unique = false) => {
+    const base = 'all-users-bet-points';
+    const uniqueClass = unique ? ' all-users-bet-points-unique' : '';
+    if (points === 6 || points === 3) {
+      return `${base}${uniqueClass} text-emerald-700 dark:text-emerald-300`;
     }
-    return null;
+    if (points === 2 || points === 1) {
+      return `${base}${uniqueClass} text-amber-700 dark:text-amber-300`;
+    }
+    return `${base} text-muted-foreground`;
   };
 
-  // Get users to display - always return all users
-  const getUsersToDisplay = () => {
-    return users;
+  const renderPointsBadge = (points: number, unique = false) => (
+    <span
+      className={getPointsPillClass(points, unique)}
+      title={unique ? 'בונוס בלעדיות — היחיד שפגע' : undefined}
+    >
+      <span className="all-users-bet-points-value">+{points}</span>
+      <span className="all-users-bet-points-label">נק׳</span>
+    </span>
+  );
+
+  const getPreseasonResult = (betKey: string) => {
+    if (betKey === 'champion') {
+      return teams.find((t) => t.uid === seasonResults?.champion)?.name || '';
+    }
+    if (betKey === 'cup') {
+      return teams.find((t) => t.uid === seasonResults?.cupWinner)?.name || '';
+    }
+    if (betKey === 'relegation') {
+      const relegated = [seasonResults?.relegation1, seasonResults?.relegation2]
+        .filter(Boolean)
+        .map((id) => teams.find((t) => t.uid === id)?.name)
+        .filter(Boolean);
+      return relegated.join(' · ');
+    }
+    if (betKey === 'topScorer') {
+      return players.find((p) => p.uid === seasonResults?.topScorer)?.name || '';
+    }
+    if (betKey === 'topAssists') {
+      return players.find((p) => p.uid === seasonResults?.topAssists)?.name || '';
+    }
+    return '';
+  };
+
+  const getPreseasonUserDisplay = (betKey: string, userId: string) => {
+    const userBets = preSeasonBetsByUser[userId] || {};
+    if (betKey === 'relegation') {
+      const picks = [userBets.relegation1, userBets.relegation2]
+        .filter(Boolean)
+        .map((id) => teams.find((t) => t.uid === id)?.name)
+        .filter(Boolean);
+      return picks.join(' · ');
+    }
+    if (betKey === 'champion' || betKey === 'cup') {
+      const teamId = userBets[betKey];
+      return teams.find((t) => t.uid === teamId)?.name || '';
+    }
+    const playerId = userBets[betKey];
+    return players.find((p) => p.uid === playerId)?.name || '';
+  };
+
+  const getPreseasonUserPoints = (betKey: string, userId: string) => {
+    const userBets = preSeasonBetsByUser[userId] || {};
+    if (betKey === 'champion' && userBets.champion && userBets.champion === seasonResults?.champion) {
+      return 10;
+    }
+    if (betKey === 'cup' && userBets.cup && userBets.cup === seasonResults?.cupWinner) {
+      return 8;
+    }
+    if (betKey === 'relegation') {
+      const actualRelegated = [seasonResults?.relegation1, seasonResults?.relegation2].filter(Boolean);
+      const userPicks = [userBets.relegation1, userBets.relegation2].filter(Boolean);
+      return userPicks.filter((pick) => actualRelegated.includes(pick)).length * 5;
+    }
+    if (betKey === 'topScorer' && userBets.topScorer && userBets.topScorer === seasonResults?.topScorer) {
+      return 7;
+    }
+    if (betKey === 'topAssists' && userBets.topAssists && userBets.topAssists === seasonResults?.topAssists) {
+      return 5;
+    }
+    return 0;
+  };
+
+  const getUsersToDisplay = () => users;
+
+  const renderMatchScore = (home: number, away: number) => (
+    <span className="match-score-rtl">
+      <span>{home}</span>
+      <span aria-hidden="true">–</span>
+      <span>{away}</span>
+    </span>
+  );
+
+  const renderRoundBetCell = (
+    user: UserInfo,
+    bet: Bet | undefined,
+    matchInfo: MatchInfo
+  ) => {
+    const styling = getCellStyling(bet, matchInfo);
+    const hasResult =
+      typeof matchInfo.actualHomeScore === 'number' &&
+      typeof matchInfo.actualAwayScore === 'number';
+
+    return (
+      <div key={user.uid} className={`all-users-bet-cell ${styling.bg} ${styling.text}`}>
+        {bet && isUniqueBet(bet) && hasResult && (
+          <span className="all-users-unique-star" title="בונוס בלעדיות — היחיד שפגע">
+            ★
+          </span>
+        )}
+        <div className="all-users-bet-name" title={user.displayName}>
+          {user.displayName}
+        </div>
+        <div className="all-users-bet-body">
+          {matchInfo.isCancelled ? (
+            <div className="all-users-bet-value text-red-400">
+              {bet ? renderMatchScore(bet.homeScore, bet.awayScore) : 'בוטל'}
+            </div>
+          ) : bet ? (
+            <div className="all-users-bet-value">
+              {renderMatchScore(bet.homeScore, bet.awayScore)}
+            </div>
+          ) : (
+            <div className="all-users-bet-value text-muted-foreground">—</div>
+          )}
+          {hasResult && bet && (bet.points ?? 0) > 0 && renderPointsBadge(bet.points ?? 0, isUniqueBet(bet))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPreseasonBetCell = (betKey: string, user: UserInfo) => {
+    const display = getPreseasonUserDisplay(betKey, user.uid);
+    const points = getPreseasonUserPoints(betKey, user.uid);
+    const isCorrect = points > 0;
+
+    return (
+      <div
+        key={user.uid}
+        className={`all-users-bet-cell ${isCorrect ? 'bet-hit-exact' : 'bet-miss'}`}
+      >
+        <div className="all-users-bet-name" title={user.displayName}>
+          {user.displayName}
+        </div>
+        <div className="all-users-bet-body">
+          <div className={`all-users-bet-value ${isCorrect ? 'text-emerald-300' : ''}`}>
+            {display || <span className="text-muted-foreground">—</span>}
+          </div>
+          {isCorrect && (
+            <span className="all-users-bet-points text-emerald-700 dark:text-emerald-300">
+              <span className="all-users-bet-points-value">+{points}</span>
+              <span className="all-users-bet-points-label">נק׳</span>
+            </span>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -324,17 +471,26 @@ const AllUsersBetsPage: React.FC = () => {
                 {/* טבלת ההימורים - מוצגת רק כאשר המחזור סגור ויש הימורים */}
                 {roundClosed && Object.keys(betsByUser).length > 0 && (
                   <>
-                    {/* מקרא צבעים */}
-                    <div className="flex flex-wrap items-center justify-center gap-3 text-[11px] text-muted-foreground sm:text-xs">
-                      <div className="flex items-center gap-1"><span className="inline-block h-4 w-4 rounded bet-hit-exact"></span> פגיעה מדויקת</div>
-                      <div className="flex items-center gap-1"><span className="inline-block h-4 w-4 rounded bet-hit-direction"></span> פגיעה בכיוון</div>
-                      <div className="flex items-center gap-1"><span className="text-violet-400 text-lg">★</span> בלעדיות (היחיד שפגע)</div>
-                      <div className="flex items-center gap-1"><span className="inline-block h-4 w-4 rounded bet-miss"></span> לא פגע</div>
+                    <div className="all-users-legend">
+                      <div className="flex items-center gap-1">
+                        <span className="all-users-legend-swatch bet-hit-exact" />
+                        מדויק
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="all-users-legend-swatch bet-hit-direction" />
+                        כיוון
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="all-users-legend-star">★</span>
+                        בלעדי
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="all-users-legend-swatch bet-miss" />
+                        החטאה
+                      </div>
                     </div>
 
-
-
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                         {sortedMatchIds.map((matchId) => {
                           const matchInfo = matchesMap[matchId];
                           if (!matchInfo) return null;
@@ -344,70 +500,24 @@ const AllUsersBetsPage: React.FC = () => {
                           );
                           
                           return (
-                            <div key={matchId} className="app-card overflow-hidden">
-                              <div className={matchInfo.isCancelled ? 'match-card-header-cancelled' : 'match-card-header'}>
-                                <div className="text-center">
-                                  <h3 className="mb-1 text-base font-bold text-foreground sm:text-lg">
-                                    {matchInfo.homeTeam} - {matchInfo.awayTeam}
-                                  </h3>
-                                  <div className="text-center">
-                                    <span className="text-lg font-bold">
-                                      {matchInfo.isCancelled ? (
-                                        <span className="text-red-400">בוטל</span>
-                                      ) : (typeof matchInfo.actualHomeScore === 'number' && typeof matchInfo.actualAwayScore === 'number')
-                                        ? `${matchInfo.actualHomeScore} - ${matchInfo.actualAwayScore}`
-                                        : <span className="text-muted-foreground">—</span>}
-                                    </span>
-                                  </div>
-                                  {matchInfo.isCancelled && (
-                                    <div className="mt-1">
-                                      <span className="text-sm font-bold text-red-400">משחק בוטל</span>
-                                    </div>
-                                  )}
+                            <div key={matchId} className="all-users-match-card">
+                              <div className={matchInfo.isCancelled ? 'all-users-match-header-cancelled' : 'all-users-match-header'}>
+                                <h3 className="all-users-match-title">
+                                  {matchInfo.homeTeam} – {matchInfo.awayTeam}
+                                </h3>
+                                <div className="all-users-match-score">
+                                  {matchInfo.isCancelled ? (
+                                    <span className="text-red-400">בוטל</span>
+                                  ) : (typeof matchInfo.actualHomeScore === 'number' && typeof matchInfo.actualAwayScore === 'number')
+                                    ? renderMatchScore(matchInfo.actualHomeScore, matchInfo.actualAwayScore)
+                                    : <span className="text-muted-foreground">—</span>}
                                 </div>
                               </div>
 
-                              <div className="p-3 sm:p-4">
-                                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
-                                  {usersToShow.map((user, idx) => {
-                                    const bet = betsForMatch[idx];
-                                    const styling = getCellStyling(bet, matchInfo);
-                                    const bonusIcon = getBonusIcon(bet);
-                                    
-                                    return (
-                                      <div key={user.uid} className={`rounded-lg p-2.5 sm:p-3 ${styling.bg} ${styling.text}`}>
-                                        <div className="text-center">
-                                          <div className="mb-1 text-xs font-semibold sm:text-sm">{user.displayName}</div>
-                                          {matchInfo.isCancelled ? (
-                                            <div className="flex flex-col items-center">
-                                              <span className="text-sm font-bold text-red-400">בוטל</span>
-                                              {bet && (
-                                                <span className="mt-1 text-xs text-muted-foreground">
-                                                  {bet.homeScore} - {bet.awayScore}
-                                                </span>
-                                              )}
-                                            </div>
-                                          ) : bet ? (
-                                            <>
-                                              <div className="flex items-center justify-center gap-1">
-                                                {bonusIcon}
-                                                <span className="text-base font-bold sm:text-lg">{bet.homeScore} - {bet.awayScore}</span>
-                                              </div>
-                                              {(typeof matchInfo.actualHomeScore === 'number' && typeof matchInfo.actualAwayScore === 'number') ? (
-                                                <div className={`mt-1.5 ${getPointsPillClass(bet.points ?? 0)}`}>
-                                                  {bet.points ?? 0} נק'
-                                                </div>
-                                              ) : null}
-                                            </>
-                                          ) : (
-                                            <span className="text-muted-foreground">—</span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                                
+                              <div className="all-users-bets-grid">
+                                {usersToShow.map((user, idx) =>
+                                  renderRoundBetCell(user, betsForMatch[idx], matchInfo)
+                                )}
                               </div>
                             </div>
                           );
@@ -422,74 +532,23 @@ const AllUsersBetsPage: React.FC = () => {
         {activeTab === 'preseason' && (
           seasonStarted ? (
             <>
-              <div className="space-y-3">
-                  {Object.entries(PRESEASON_BET_LABELS).map(([betKey, label]) => {
-                    // Get result for this category
-                    let resultDisplay = '';
-                    if (['champion', 'cup', 'relegation1', 'relegation2'].includes(betKey)) {
-                      resultDisplay = teams.find(t => t.uid === seasonResults?.[betKey === 'cup' ? 'cupWinner' : betKey])?.name || '';
-                    } else if (['topScorer', 'topAssists'].includes(betKey)) {
-                      resultDisplay = players.find(p => p.uid === seasonResults?.[betKey])?.name || '';
-                    }
+              <div className="space-y-2.5">
+                  {PRESEASON_CATEGORIES.map(({ key, label }) => {
+                    const resultDisplay = getPreseasonResult(key);
 
                     return (
-                      <div key={betKey} className="app-card overflow-hidden">
-                        <div className="match-card-header">
-                          <h3 className="text-center text-base font-bold text-foreground sm:text-lg">{label}</h3>
+                      <div key={key} className="all-users-match-card">
+                        <div className="all-users-category-header">
+                          <h3 className="all-users-category-title">{label}</h3>
                           {seasonResults && (
-                            <div className="mt-1 text-center">
-                              <span className="text-base font-bold text-emerald-400 sm:text-lg">
-                                {resultDisplay || <span className="text-muted-foreground">—</span>}
-                              </span>
+                            <div className="all-users-category-result">
+                              {resultDisplay || <span className="text-muted-foreground">—</span>}
                             </div>
                           )}
                         </div>
 
-                        <div className="p-3 sm:p-4">
-                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
-                            {users.map((user) => {
-                              const betValue = preSeasonBetsByUser[user.uid]?.[betKey];
-                              let display = '';
-                              let isCorrect = false;
-                              let points = 0;
-                              
-                              if (['champion', 'cup'].includes(betKey)) {
-                                display = teams.find(t => t.uid === betValue)?.name || '';
-                                const resultId = betKey === 'cup' ? seasonResults?.cupWinner : seasonResults?.[betKey];
-                                if (betValue && resultId && betValue === resultId) {
-                                  isCorrect = true;
-                                  points = betKey === 'champion' ? 10 : 8;
-                                }
-                              } else if (['relegation1', 'relegation2'].includes(betKey)) {
-                                display = teams.find(t => t.uid === betValue)?.name || '';
-                                const actualRelegated = [seasonResults?.relegation1, seasonResults?.relegation2].filter(Boolean);
-                                if (betValue && actualRelegated.includes(betValue)) {
-                                  isCorrect = true;
-                                  points = 5;
-                                }
-                              } else if (['topScorer', 'topAssists'].includes(betKey)) {
-                                display = players.find(p => p.uid === betValue)?.name || '';
-                                if (betValue && seasonResults?.[betKey] && betValue === seasonResults[betKey]) {
-                                  isCorrect = true;
-                                  points = betKey === 'topScorer' ? 7 : 5;
-                                }
-                              }
-
-                              return (
-                                <div key={user.uid} className={`rounded-lg p-2.5 sm:p-3 ${isCorrect ? 'bet-correct' : 'bet-miss'}`}>
-                                  <div className="text-center">
-                                    <div className="mb-1 text-xs font-semibold text-foreground sm:text-sm">{user.displayName}</div>
-                                    <div className={`text-sm ${isCorrect ? 'font-bold text-emerald-300' : 'text-foreground'}`}>
-                                      {display || <span className="text-muted-foreground">—</span>}
-                                    </div>
-                                    {isCorrect && (
-                                      <div className="mt-1.5 text-xs font-bold text-emerald-400">{points} נק'</div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+                        <div className="all-users-bets-grid">
+                          {users.map((user) => renderPreseasonBetCell(key, user))}
                         </div>
                       </div>
                     );
