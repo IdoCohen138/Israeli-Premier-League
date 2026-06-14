@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "deploy": "npm run build && firebase deploy --only hosting --project israeli-premier-league",
-    "generate-icons": "node scripts/generate-pwa-icons.mjs",
     "copy-season-teams": "node scripts/copy-season-teams.cjs",
     "copy-season-players": "node scripts/copy-season-players.cjs",
     "lint": "eslint .",

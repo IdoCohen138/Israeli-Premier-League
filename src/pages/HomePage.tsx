@@ -161,7 +161,7 @@ export default function HomePage() {
 
                     <div className="home-header-brand">
                         <div className="home-header-logo">
-                            <Trophy size={20} />
+                            <img src="/icons/officalIcon.png" alt="" width={44} height={44} />
                         </div>
                         <div>
                             <p className="home-header-league">ניחושים · ליגת העל</p>

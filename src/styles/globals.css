@@ -605,7 +605,11 @@
   }
 
   .home-header-logo {
-    @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 text-amber-300 shadow-inner;
+    @apply h-11 w-11 shrink-0 overflow-hidden rounded-xl shadow-md ring-2 ring-white/25;
+  }
+
+  .home-header-logo img {
+    @apply h-full w-full object-cover;
   }
 
   .home-header-league {
