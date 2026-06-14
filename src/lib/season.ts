@@ -1,4 +1,4 @@
-import { getDocs, collection, doc, getDoc, setDoc } from 'firebase/firestore';
+import { getDocs, collection, doc, getDoc, getDocFromServer, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import type { SeasonConfig } from '@/types';
 import { getTrustedNow } from './serverTime';
@@ -55,7 +55,18 @@ export function sortSeasonIdsDesc(seasonIds: string[]): string[] {
   });
 }
 
-type RawSeasonConfig = Partial<SeasonConfig> & { previousSeasonId?: string };
+type RawSeasonConfig = Partial<SeasonConfig> & {
+  previousSeasonId?: string;
+  /** @deprecated legacy field name — use seasonOpen */
+  open?: boolean | string;
+  seasonOpen?: boolean | string;
+};
+
+function parseSeasonOpenFlag(data: RawSeasonConfig): boolean {
+  const value = data.seasonOpen ?? data.open;
+  if (value === true || value === 'true') return true;
+  return false;
+}
 
 export function normalizeSeasonConfig(data: RawSeasonConfig): SeasonConfig {
   const calendarSeason = getCalendarSeason();
@@ -67,7 +78,7 @@ export function normalizeSeasonConfig(data: RawSeasonConfig): SeasonConfig {
 
   return {
     activeSeasonId: data.activeSeasonId ?? calendarSeason,
-    seasonOpen: data.seasonOpen ?? false,
+    seasonOpen: parseSeasonOpenFlag(data),
     previousSeasonIds: sortSeasonIdsDesc(previousSeasonIds ?? []),
   };
 }
@@ -82,27 +93,25 @@ function getDefaultSeasonConfig(): SeasonConfig {
 }
 
 export async function getSeasonConfig(): Promise<SeasonConfig> {
-  return getCached('seasonConfig', CACHE_TTL.seasonDoc, async () => {
-    try {
-      const configRef = doc(db, SEASON_CONFIG_PATH);
-      const configDoc = await getDoc(configRef);
+  try {
+    const configRef = doc(db, SEASON_CONFIG_PATH);
+    const configDoc = await getDocFromServer(configRef);
 
-      if (configDoc.exists()) {
-        const data = normalizeSeasonConfig(configDoc.data() as RawSeasonConfig);
-        setActiveSeasonId(data.activeSeasonId);
-        return data;
-      }
-
-      const defaultConfig = getDefaultSeasonConfig();
-      setActiveSeasonId(defaultConfig.activeSeasonId);
-      return defaultConfig;
-    } catch (error) {
-      console.error('Error getting season config:', error);
-      const defaultConfig = getDefaultSeasonConfig();
-      setActiveSeasonId(defaultConfig.activeSeasonId);
-      return defaultConfig;
+    if (configDoc.exists()) {
+      const data = normalizeSeasonConfig(configDoc.data() as RawSeasonConfig);
+      setActiveSeasonId(data.activeSeasonId);
+      return data;
     }
-  });
+
+    const defaultConfig = getDefaultSeasonConfig();
+    setActiveSeasonId(defaultConfig.activeSeasonId);
+    return defaultConfig;
+  } catch (error) {
+    console.error('Error getting season config from server:', error);
+    const defaultConfig = getDefaultSeasonConfig();
+    setActiveSeasonId(defaultConfig.activeSeasonId);
+    return defaultConfig;
+  }
 }
 
 export async function listSeasonIds(): Promise<string[]> {

@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import type { SeasonConfig } from '@/types';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   formatSeasonDisplay,
   getCalendarSeason,
@@ -22,7 +23,21 @@ interface SeasonContextValue {
 
 const SeasonContext = createContext<SeasonContextValue | undefined>(undefined);
 
+function configFromSnapshot(
+  snap: Awaited<ReturnType<typeof getDocFromServer>>
+): SeasonConfig {
+  if (snap.exists()) {
+    return normalizeSeasonConfig(snap.data() as Parameters<typeof normalizeSeasonConfig>[0]);
+  }
+  return {
+    activeSeasonId: getCalendarSeason(),
+    seasonOpen: false,
+    previousSeasonIds: [],
+  };
+}
+
 export function SeasonProvider({ children }: { children: React.ReactNode }) {
+  const { user, loading: authLoading } = useAuth();
   const [config, setConfig] = useState<SeasonConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -33,42 +48,66 @@ export function SeasonProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshConfig = useCallback(async () => {
+    if (!user) return;
     invalidateCache('seasonConfig');
     const { getSeasonConfig } = await import('@/lib/season');
     applyConfig(await getSeasonConfig());
-  }, [applyConfig]);
+  }, [applyConfig, user]);
 
   useEffect(() => {
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+
+    if (!user) {
+      setConfig(null);
+      setActiveSeasonId(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
     const configRef = doc(db, 'config/season');
+
+    const applyFromServerSnap = (
+      snap: Awaited<ReturnType<typeof getDocFromServer>>
+    ) => {
+      if (cancelled) return;
+      applyConfig(configFromSnapshot(snap));
+    };
+
+    getDocFromServer(configRef)
+      .then(applyFromServerSnap)
+      .catch((error) => {
+        console.error('Error fetching season config from server:', error);
+        if (!cancelled) setLoading(false);
+      });
 
     const unsubscribe = onSnapshot(
       configRef,
+      { includeMetadataChanges: true },
       (snap) => {
-        if (snap.exists()) {
-          applyConfig(normalizeSeasonConfig(snap.data() as Parameters<typeof normalizeSeasonConfig>[0]));
-        } else {
-          applyConfig({
-            activeSeasonId: getCalendarSeason(),
-            seasonOpen: false,
-            previousSeasonIds: [],
-          });
-        }
+        if (snap.metadata.fromCache) return;
+        applyFromServerSnap(snap);
       },
       (error) => {
         console.error('Error listening to season config:', error);
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     );
 
-    return unsubscribe;
-  }, [applyConfig]);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [user, authLoading, applyConfig]);
 
   const activeSeasonId = config?.activeSeasonId ?? getCalendarSeason();
   const previousSeasonIds = config?.previousSeasonIds ?? [];
 
-  const upcomingSeasonDisplay = config?.seasonOpen
-    ? formatSeasonDisplay(activeSeasonId)
-    : formatSeasonDisplay(activeSeasonId);
+  const upcomingSeasonDisplay = formatSeasonDisplay(activeSeasonId);
 
   return (
     <SeasonContext.Provider
