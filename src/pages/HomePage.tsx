@@ -1,4 +1,4 @@
-import { useState, useEffect, type ElementType } from "react";
+import { useState, useEffect, useRef, type ElementType } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSeason } from "@/contexts/SeasonContext";
@@ -10,47 +10,73 @@ import {
     Settings,
     LogOut,
     History,
-    CalendarDays,
     ChevronLeft,
     BarChart3,
-    Sparkles,
+    CalendarClock,
 } from "lucide-react";
-import { formatSeasonDisplay, getHomeRoundInfo, listSeasonIds } from "@/lib/season";
+import { formatSeasonDisplay, getHomeRoundInfo, listSeasonIds, getCurrentSeasonData, parseSeasonStartField } from "@/lib/season";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import {
+    ensureServerTimeSynced,
+    getBettingWindowStatus,
+    formatBettingStatusLine,
+    type BettingWindowStatus,
+} from "@/lib/serverTime";
+import { cn } from "@/lib/utils";
 import PreviousSeasonTableModal, { getPreviousSeasonDismissKey } from "@/components/PreviousSeasonTableModal";
 import PageShell from "@/components/layout/PageShell";
 import ThemeToggle from "@/components/layout/ThemeToggle";
-import { cn } from "@/lib/utils";
 
-interface ActionCardProps {
-    icon: ElementType;
-    title: string;
-    subtitle: string;
-    onClick: () => void;
-    variant?: "primary" | "gold" | "default";
-    featured?: boolean;
-}
+function BettingStatusLine({
+    status,
+    className,
+}: {
+    status: BettingWindowStatus;
+    className?: string;
+}) {
+    const line = formatBettingStatusLine(status);
 
-function ActionCard({ icon: Icon, title, subtitle, onClick, variant = "default", featured }: ActionCardProps) {
     return (
-        <button
-            type="button"
-            onClick={onClick}
+        <p
             className={cn(
-                "home-action-card group text-right",
-                variant === "primary" && "home-action-card--primary",
-                variant === "gold" && "home-action-card--gold",
-                featured && "home-action-card--featured sm:col-span-2"
+                "home-betting-status",
+                status.isOpen ? "home-betting-status--open" : "home-betting-status--closed",
+                className
             )}
         >
-            <div className="flex items-start justify-between gap-2">
-                <ChevronLeft size={16} className="mt-1 shrink-0 text-muted-foreground/50 transition-transform group-hover:-translate-x-0.5" />
-                <div className="min-w-0 flex-1">
-                    <div className="home-action-icon">
-                        <Icon size={featured ? 22 : 18} />
-                    </div>
-                    <h3 className="home-action-title">{title}</h3>
-                    <p className="home-action-subtitle">{subtitle}</p>
-                </div>
+            <span className="home-betting-status-dot" aria-hidden />
+            <span>{line}</span>
+        </p>
+    );
+}
+
+interface NavRowProps {
+    icon: ElementType;
+    title: string;
+    subtitle?: string;
+    onClick: () => void;
+    accent?: "emerald" | "amber" | "sky" | "violet" | "slate";
+    bettingStatus?: BettingWindowStatus | null;
+}
+
+function NavRow({ icon: Icon, title, subtitle, onClick, accent = "slate", bettingStatus }: NavRowProps) {
+    return (
+        <button type="button" onClick={onClick} className={cn("home-nav-row group", `home-nav-row--${accent}`)}>
+            <ChevronLeft
+                size={17}
+                className="home-nav-row-chevron shrink-0"
+                aria-hidden
+            />
+            <div className="home-nav-row-body">
+                <span className="home-nav-row-title">{title}</span>
+                {subtitle && <span className="home-nav-row-sub">{subtitle}</span>}
+                {bettingStatus?.isOpen && (
+                    <BettingStatusLine status={bettingStatus} className="home-nav-row-status" />
+                )}
+            </div>
+            <div className="home-nav-row-icon" aria-hidden>
+                <Icon size={19} strokeWidth={2} />
             </div>
         </button>
     );
@@ -67,17 +93,82 @@ export default function HomePage() {
     const [modalSeasonId, setModalSeasonId] = useState<string | null>(null);
     const [showArchiveModal, setShowArchiveModal] = useState(false);
     const [allPreviousSeasonIds, setAllPreviousSeasonIds] = useState<string[]>([]);
+    const [roundStatus, setRoundStatus] = useState<BettingWindowStatus | null>(null);
+    const [preSeasonStatus, setPreSeasonStatus] = useState<BettingWindowStatus | null>(null);
+    const roundBettingSourceRef = useRef<{
+        deadline: string | null;
+        extensions?: Record<string, string>;
+    } | null>(null);
+    const preSeasonDeadlineRef = useRef<string | null>(null);
+
+    const refreshBettingStatuses = () => {
+        const roundSource = roundBettingSourceRef.current;
+        if (roundSource) {
+            setRoundStatus(
+                getBettingWindowStatus(roundSource.deadline, user?.uid, roundSource.extensions)
+            );
+        }
+        const seasonDeadline = preSeasonDeadlineRef.current;
+        if (seasonDeadline) {
+            setPreSeasonStatus(getBettingWindowStatus(seasonDeadline));
+        } else {
+            setPreSeasonStatus(null);
+        }
+    };
+
     useEffect(() => {
         let cancelled = false;
+        let timer: ReturnType<typeof setInterval> | undefined;
 
         const load = async () => {
             setLoading(true);
+            setRoundStatus(null);
+            setPreSeasonStatus(null);
             try {
+                if (user?.uid) {
+                    await ensureServerTimeSynced(user.uid);
+                }
+                if (cancelled) return;
+
                 const info = await getHomeRoundInfo(activeSeasonId);
                 if (cancelled) return;
+
                 setCurrentRoundNumber(info.currentRoundNumber);
                 setCurrentRoundName(info.currentRoundName);
                 setNextRoundTime(info.nextRoundTime);
+
+                if (info.currentRoundNumber) {
+                    const roundDoc = await getDoc(
+                        doc(db, 'season', activeSeasonId, 'rounds', String(info.currentRoundNumber))
+                    );
+                    const data = roundDoc.data();
+                    roundBettingSourceRef.current = {
+                        deadline: data?.startTime || null,
+                        extensions: data?.bettingExtensions,
+                    };
+                } else {
+                    roundBettingSourceRef.current = null;
+                }
+
+                const seasonData = await getCurrentSeasonData();
+                if (cancelled) return;
+
+                preSeasonDeadlineRef.current = parseSeasonStartField(seasonData?.seasonStart);
+
+                if (info.currentRoundNumber && roundBettingSourceRef.current) {
+                    setRoundStatus(
+                        getBettingWindowStatus(
+                            roundBettingSourceRef.current.deadline,
+                            user?.uid,
+                            roundBettingSourceRef.current.extensions
+                        )
+                    );
+                }
+
+                const seasonDeadline = preSeasonDeadlineRef.current;
+                setPreSeasonStatus(seasonDeadline ? getBettingWindowStatus(seasonDeadline) : null);
+
+                timer = setInterval(refreshBettingStatuses, 60_000);
             } catch (error) {
                 console.error('Error loading home round info:', error);
             } finally {
@@ -88,8 +179,9 @@ export default function HomePage() {
         load();
         return () => {
             cancelled = true;
+            if (timer) clearInterval(timer);
         };
-    }, [activeSeasonId]);
+    }, [activeSeasonId, user?.uid]);
 
     useEffect(() => {
         let cancelled = false;
@@ -144,122 +236,130 @@ export default function HomePage() {
             )}
 
             <div className="home-layout">
-                {/* Header */}
-                <header className="home-header">
-                    <div className="home-header-top">
-                        <ThemeToggle className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white" />
+                <header className="home-hero">
+                    <div className="home-hero-logo-bg" aria-hidden>
+                        <img src="/icons/officalIcon.png" alt="" />
+                    </div>
+                    <div className="home-hero-scrim" aria-hidden />
+                    <div className="home-hero-glow" aria-hidden />
+
+                    <div className="home-hero-toolbar">
+                        <ThemeToggle className="home-hero-icon-btn" />
                         <Button
                             variant="ghost"
                             size="sm"
                             onClick={handleLogout}
-                            className="home-header-btn gap-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+                            className="home-hero-icon-btn gap-1.5"
                         >
-                            <LogOut size={15} />
+                            <LogOut size={16} />
                             <span className="hidden sm:inline">יציאה</span>
                         </Button>
                     </div>
 
-                    <div className="home-header-brand">
-                        <div className="home-header-logo">
-                            <img src="/icons/officalIcon.png" alt="" width={44} height={44} />
-                        </div>
-                        <div>
-                            <p className="home-header-league">ניחושים · ליגת העל</p>
-                            <h1 className="home-header-user">{displayName}</h1>
-                        </div>
+                    <div className="home-hero-brand">
+                        <p className="home-hero-eyebrow">ליגת העל · ניחושים</p>
+                        <h1 className="home-hero-name">{displayName}</h1>
                     </div>
 
-                    <div className="home-header-meta">
-                        <span className="home-header-season">עונה {formatSeasonDisplay(activeSeasonId)}</span>
+                    <div className="home-hero-meta">
+                        <span className="home-hero-season">עונה {formatSeasonDisplay(activeSeasonId)}</span>
+                        <button
+                            type="button"
+                            className="home-hero-archive"
+                            onClick={() => setShowArchiveModal(true)}
+                        >
+                            <History size={14} aria-hidden />
+                            <span>ארכיון</span>
+                        </button>
                     </div>
                 </header>
 
-                {/* Live status strip */}
-                <section className="home-status-strip" aria-label="סטטוס מחזור">
-                    <div className="home-current-round">
-                        <div className="home-current-round-icon" aria-hidden>
-                            <CalendarDays size={18} />
+                <div className="home-hero-overlap">
+                    <section className="home-round-card" aria-label="סטטוס מחזור">
+                        <div className="home-round-card-top">
+                            <span className="home-round-card-label">מחזור נוכחי</span>
+                            <span className="home-live-badge">
+                                <span className="home-live-dot" aria-hidden />
+                                LIVE
+                            </span>
                         </div>
-                        <div className="min-w-0 flex-1">
-                            <p className="home-current-round-label">
-                                <span className="home-current-round-dot" />
-                                מחזור נוכחי
-                            </p>
-                            <p className="home-current-round-value">{roundDisplay}</p>
+                        <div className="home-round-card-bottom">
+                            <p className="home-round-card-name">{roundDisplay}</p>
+                            {!loading && roundStatus && (
+                                <BettingStatusLine status={roundStatus} className="home-round-card-status" />
+                            )}
                         </div>
-                    </div>
-                    {nextRoundTime && (
-                        <div className="home-status-item home-status-item--next">
-                            <div className="home-status-next-icon" aria-hidden>
-                                <Sparkles size={15} />
+                        {nextRoundTime && (
+                            <div className="home-round-card-next">
+                                <CalendarClock size={13} className="shrink-0 opacity-60" aria-hidden />
+                                <span className="home-round-card-next-label">מחזור הבא</span>
+                                <span className="home-round-card-next-value">{nextRoundTime}</span>
                             </div>
-                            <div className="min-w-0">
-                                <p className="home-status-label">מחזור הבא</p>
-                                <p className="home-status-value-sm">{nextRoundTime}</p>
-                            </div>
-                        </div>
-                    )}
-                </section>
-
-                {/* Primary actions */}
-                <section aria-label="פעולות עיקריות">
-                    <p className="home-section-label">הימורים</p>
-                    <div className="home-actions-grid">
-                        <ActionCard
-                            icon={Target}
-                            title="הימורי מחזור"
-                            subtitle="ניחוש תוצאות מדויקות"
-                            onClick={() => navigate('/round-bets')}
-                            variant="primary"
-                            featured
-                        />
-                        <ActionCard
-                            icon={Trophy}
-                            title="הימורים מקדימים"
-                            subtitle="אלופה, גביע, יורדות ומלכי השערים"
-                            onClick={() => navigate('/pre-season-bets')}
-                            variant="gold"
-                            featured
-                        />
-                    </div>
-                </section>
-
-                {/* Secondary actions */}
-                <section aria-label="מידע וסטטיסטיקה">
-                    <p className="home-section-label">לוח תוצאות</p>
-                    <div className="home-actions-grid home-actions-grid--secondary">
-                        <ActionCard
-                            icon={BarChart3}
-                            title="טבלת מיקומים"
-                            subtitle="דירוג ונקודות"
-                            onClick={() => navigate('/leaderboard')}
-                        />
-                        <ActionCard
-                            icon={Users}
-                            title="הימורי משתמשים"
-                            subtitle="צפייה בהימורי המשתמשים למחזור/הימורים מקדימים"
-                            onClick={() => navigate('/all-users-bets')}
-                        />
-                        <ActionCard
-                            icon={History}
-                            title="ארכיון עונות"
-                            subtitle={
-                                allPreviousSeasonIds.length > 0
-                                    ? `${allPreviousSeasonIds.length} עונות קודמות`
-                                    : 'אין עדיין ארכיון'
-                            }
-                            onClick={() => setShowArchiveModal(true)}
-                        />
-                        {user?.role === 'admin' && (
-                            <ActionCard
-                                icon={Settings}
-                                title="ניהול מערכת"
-                                subtitle="מחזורים, משחקים ותוצאות"
-                                onClick={() => navigate('/admin')}
-                            />
                         )}
-                    </div>
-                </section>
+                    </section>
+                </div>
+
+                <main className="home-main">
+                    <section className="home-section" aria-label="הימורים">
+                        <h2 className="home-section-title">הימורים</h2>
+
+                        <button
+                            type="button"
+                            className="home-primary-cta group"
+                            onClick={() => navigate('/round-bets')}
+                        >
+                            <ChevronLeft size={18} className="home-primary-cta-chevron" aria-hidden />
+                            <div className="home-primary-cta-body">
+                                <span className="home-primary-cta-title">הימורי מחזור</span>
+                                <span className="home-primary-cta-sub">ניחוש תוצאות למחזור הנוכחי</span>
+                            </div>
+                            <div className="home-primary-cta-icon" aria-hidden>
+                                <Target size={22} strokeWidth={2} />
+                            </div>
+                        </button>
+
+                        <div className="home-nav-group">
+                            <NavRow
+                                icon={Trophy}
+                                title="הימורים מקדימים"
+                                subtitle="אלופה, גביע ויורדות"
+                                onClick={() => navigate('/pre-season-bets')}
+                                accent="amber"
+                                bettingStatus={preSeasonStatus}
+                            />
+                        </div>
+                    </section>
+
+                    <section className="home-section" aria-label="לוח תוצאות">
+                        <h2 className="home-section-title">לוח תוצאות</h2>
+
+                        <div className="home-nav-group">
+                            <NavRow
+                                icon={Users}
+                                title="הימורי כל המשתמשים"
+                                subtitle="צפייה בהימורים למחזור"
+                                onClick={() => navigate('/all-users-bets')}
+                                accent="sky"
+                            />
+                            <NavRow
+                                icon={BarChart3}
+                                title="טבלת מיקומים"
+                                subtitle="דירוג ונקודות"
+                                onClick={() => navigate('/leaderboard')}
+                                accent="violet"
+                            />
+                            {user?.role === 'admin' && (
+                                <NavRow
+                                    icon={Settings}
+                                    title="ניהול מערכת"
+                                    subtitle="מחזורים, משחקים ותוצאות"
+                                    onClick={() => navigate('/admin')}
+                                    accent="slate"
+                                />
+                            )}
+                        </div>
+                    </section>
+                </main>
             </div>
         </PageShell>
     );

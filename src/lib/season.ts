@@ -188,6 +188,20 @@ export async function getCurrentSeasonData() {
   });
 }
 
+export function parseSeasonStartField(seasonStart: unknown): string | null {
+  if (!seasonStart) return null;
+  if (typeof seasonStart === 'string') return seasonStart;
+  if (
+    typeof seasonStart === 'object' &&
+    seasonStart !== null &&
+    'toDate' in seasonStart &&
+    typeof (seasonStart as { toDate: () => Date }).toDate === 'function'
+  ) {
+    return (seasonStart as { toDate: () => Date }).toDate().toISOString();
+  }
+  return null;
+}
+
 export async function getSortedRounds(seasonPath?: string): Promise<RoundSummary[]> {
   const path = seasonPath ?? getSeasonPath();
   const cacheKey = `rounds:${path}`;

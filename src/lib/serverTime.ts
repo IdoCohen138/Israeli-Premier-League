@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { formatTimeRemaining, parseIsraelDateTime, type DateInput } from './israelTime';
+import { formatTimeRemaining, parseIsraelDateTime, formatIsraelDateTime, type DateInput } from './israelTime';
 
 export const BETTING_CLOSED_ERROR = 'BETTING_CLOSED';
 
@@ -117,4 +117,51 @@ export function isBettingOpenForUser(
   extensions: Record<string, string> | undefined | null
 ): boolean {
   return !isDeadlinePassed(getEffectiveDeadlineForUser(deadline, userId, extensions));
+}
+
+export interface BettingWindowStatus {
+  isOpen: boolean;
+  hasDeadline: boolean;
+  remainingLabel: string;
+  deadlineLabel: string;
+}
+
+export function getBettingWindowStatus(
+  deadline: DateInput | null | undefined,
+  userId?: string | null,
+  extensions?: Record<string, string> | null
+): BettingWindowStatus {
+  if (!deadline) {
+    return {
+      isOpen: true,
+      hasDeadline: false,
+      remainingLabel: '',
+      deadlineLabel: '',
+    };
+  }
+
+  const effectiveDeadline = getEffectiveDeadlineForUser(deadline, userId, extensions);
+  const isOpen = !isDeadlinePassed(effectiveDeadline);
+
+  return {
+    isOpen,
+    hasDeadline: true,
+    remainingLabel: isOpen ? getRemainingTimeLabel(effectiveDeadline) : '',
+    deadlineLabel: formatIsraelDateTime(effectiveDeadline),
+  };
+}
+
+export function formatBettingStatusLine(status: BettingWindowStatus): string {
+  if (!status.hasDeadline) {
+    return 'הימורים פתוחים';
+  }
+  if (status.isOpen) {
+    return status.remainingLabel
+      ? `פתוח · נותרו ${status.remainingLabel}`
+      : 'הימורים פתוחים';
+  }
+  if (!status.isOpen) {
+    return status.deadlineLabel ? `נסגרו · ${status.deadlineLabel}` : 'הימורים נסגרו';
+  }
+  return 'הימורים נסגרו';
 }
