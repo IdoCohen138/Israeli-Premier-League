@@ -38,15 +38,19 @@ function ScrollToTop() {
 }
 
 function SeasonGate({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const { seasonOpen, loading } = useSeason();
+  const { user, loading: authLoading } = useAuth();
+  const { seasonOpen, loading: seasonLoading } = useSeason();
   const location = useLocation();
 
   if (location.pathname === '/login') {
     return <>{children}</>;
   }
 
-  if (loading) {
+  if (!authLoading && !user) {
+    return <>{children}</>;
+  }
+
+  if (authLoading || seasonLoading) {
     return <LoadingScreen />;
   }
 
