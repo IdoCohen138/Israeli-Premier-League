@@ -311,12 +311,13 @@
   }
 
   .round-points-table thead tr {
-    height: 5.25rem;
+    height: auto;
+    min-height: 3rem;
   }
 
   @media (min-width: 640px) {
     .round-points-table thead tr {
-      height: 6rem;
+      min-height: 3.5rem;
     }
   }
 
@@ -326,7 +327,7 @@
   }
 
   .round-points-table th.round-col-header {
-    @apply min-w-[2.125rem] max-w-[2.75rem] px-0.5 align-bottom;
+    @apply w-max min-w-[2.75rem] max-w-none px-1 align-bottom;
     vertical-align: bottom;
   }
 
@@ -335,16 +336,26 @@
     writing-mode: vertical-rl;
     text-orientation: mixed;
     transform: rotate(180deg);
-    @apply max-h-[4.75rem] overflow-hidden text-ellipsis text-[9px] font-semibold leading-tight text-muted-foreground sm:max-h-[5.5rem] sm:text-[10px];
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    @apply py-1 text-[9px] font-semibold leading-snug text-muted-foreground sm:text-[10px];
   }
 
   .round-points-table td.round-col {
-    @apply min-w-[2.125rem] max-w-[2.75rem] text-[11px] text-muted-foreground/80 sm:text-xs;
+    @apply min-w-[2.75rem] text-[11px] text-muted-foreground/80 sm:text-xs;
   }
 
   .round-points-table td.round-col-has-points {
     @apply font-semibold text-primary;
+  }
+
+  .round-points-table td.round-col-pending {
+    @apply text-muted-foreground/50;
+  }
+
+  .round-points-table td.round-col-zero {
+    @apply text-muted-foreground/70;
   }
 
   .round-points-table .sticky-player-col {
@@ -698,6 +709,61 @@
   /* ── Round status card (overlaps hero) ── */
   .home-hero-overlap {
     @apply relative z-20 -mt-5 px-4;
+  }
+
+  .home-main--overlap {
+    @apply -mt-3 pt-2;
+  }
+
+  .home-active-round-row {
+    @apply flex min-w-0 flex-col gap-0.5 rounded-xl border border-emerald-500/15 bg-emerald-500/5 px-2.5 py-2;
+  }
+
+  .home-active-round-name {
+    @apply truncate text-[12px] font-bold text-foreground;
+  }
+
+  .home-active-round-status {
+    @apply text-[10px];
+  }
+
+  .home-primary-cta-rounds {
+    @apply mt-2 flex flex-col gap-2;
+  }
+
+  .home-primary-cta-rounds--split {
+    @apply grid gap-2;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  }
+
+  .round-bets-pair-switcher {
+    @apply flex flex-nowrap items-stretch gap-2;
+  }
+
+  .round-bets-pair-tab {
+    @apply flex min-h-[3.25rem] min-w-0 flex-1 items-center justify-center rounded-xl border border-border/60 bg-card px-2.5 py-2.5 text-foreground transition-colors;
+  }
+
+  .round-bets-pair-tab-label {
+    @apply w-full text-center text-[13px] font-semibold leading-snug;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .round-bets-pair-tab:hover {
+    @apply border-amber-500/30 bg-amber-500/5;
+  }
+
+  .round-bets-pair-tab--active {
+    @apply border-amber-500/40 bg-amber-500/10 text-amber-800 ring-1 ring-amber-500/20 dark:text-amber-300;
+  }
+
+  .round-betting-panel {
+    @apply flex flex-col gap-3;
+  }
+
+  .round-betting-panel--loading {
+    @apply rounded-xl border border-dashed border-border/60 p-6 text-center;
   }
 
   .home-round-card {

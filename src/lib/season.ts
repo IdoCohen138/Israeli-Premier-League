@@ -1,7 +1,7 @@
 import { getDocs, collection, doc, getDoc, getDocFromServer, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import type { SeasonConfig } from '@/types';
-import { getTrustedNow } from './serverTime';
+import { getTrustedNow, isDeadlinePassed } from './serverTime';
 import { parseIsraelDateTime } from './israelTime';
 import { getCached, invalidateCache, CACHE_TTL } from './firestoreCache';
 import {
@@ -10,6 +10,11 @@ import {
   getNextRoundByStartTime,
   type RoundSummary,
 } from './sorting';
+import {
+  type ActiveRoundBetting,
+  getOpenRoundsForUser,
+  summaryToActiveRound,
+} from './activeBettingRounds';
 
 const SEASON_CONFIG_PATH = 'config/season';
 
@@ -293,14 +298,11 @@ export async function getHomeRoundInfo(seasonId?: string): Promise<HomeRoundInfo
   });
 }
 
-export const getCurrentRound = async (): Promise<number | null> => {
-  try {
-    const rounds = await getSortedRounds();
-    return resolveCurrentRound(rounds);
-  } catch (error) {
-    console.error('Error getting current round:', error);
-    return null;
-  }
+export const getCurrentRound = async (
+  seasonId?: string,
+  userId?: string | null
+): Promise<number | null> => {
+  return getPrimaryRound(seasonId, userId);
 };
 
 async function isRoundFullyCalculated(seasonPath: string, roundNumber: number): Promise<boolean> {
@@ -320,65 +322,111 @@ async function isRoundFullyCalculated(seasonPath: string, roundNumber: number): 
 
 export const getLastCalculatedRound = async (): Promise<number | null> => {
   try {
-    const seasonPath = getSeasonPath();
-    const sortedRounds = await getSortedRounds(seasonPath);
-
-    if (sortedRounds.length === 0) {
-      return null;
-    }
-
-    let lastCalculated: number | null = null;
-
-    for (const round of sortedRounds) {
-      if (await isRoundFullyCalculated(seasonPath, round.number)) {
-        lastCalculated = round.number;
-      }
-    }
-
-    return lastCalculated;
+    const calculated = await getFullyCalculatedRounds();
+    if (calculated.length === 0) return null;
+    return calculated[calculated.length - 1];
   } catch (error) {
     console.error('Error getting last calculated round:', error);
     return null;
   }
 };
 
-export const getDefaultBettingRound = async (): Promise<number | null> => {
+/** Round numbers where all active matches have results and points calculated. */
+export async function getFullyCalculatedRounds(seasonId?: string): Promise<number[]> {
+  const path = seasonId ? `season/${seasonId}` : getSeasonPath();
+  const sortedRounds = await getSortedRounds(path);
+  const calculated: number[] = [];
+
+  for (const round of sortedRounds) {
+    if (await isRoundFullyCalculated(path, round.number)) {
+      calculated.push(round.number);
+    }
+  }
+
+  return calculated;
+}
+
+export async function getActiveBettingRounds(
+  seasonId?: string,
+  userId?: string | null
+): Promise<ActiveRoundBetting[]> {
+  const path = seasonId ? `season/${seasonId}` : getSeasonPath();
+  const sortedRounds = await getSortedRounds(path);
+
+  const allRounds = await Promise.all(
+    sortedRounds.map(async (summary) => {
+      const roundDoc = await getDoc(doc(db, path, 'rounds', String(summary.number)));
+      const data = roundDoc.data();
+      return summaryToActiveRound(
+        {
+          number: summary.number,
+          startTime: data?.startTime || summary.startTime || '',
+          name: data?.name || summary.name,
+        },
+        data?.bettingExtensions
+      );
+    })
+  );
+
+  return getOpenRoundsForUser(allRounds, userId);
+}
+
+/**
+ * Primary round for betting pages: earliest open betting deadline first.
+ * Falls back to the in-progress round by timeline when none are open.
+ */
+export async function getPrimaryRound(
+  seasonId?: string,
+  userId?: string | null
+): Promise<number | null> {
   try {
-    const sortedRounds = await getSortedRounds();
+    const openRounds = await getActiveBettingRounds(seasonId, userId);
+    if (openRounds.length > 0) {
+      return openRounds[0].number;
+    }
+
+    const path = seasonId ? `season/${seasonId}` : getSeasonPath();
+    const sortedRounds = await getSortedRounds(path);
+    return resolveCurrentRound(sortedRounds);
+  } catch (error) {
+    console.error('Error getting primary round:', error);
+    return null;
+  }
+}
+
+export const getDefaultBettingRound = async (
+  userId?: string | null
+): Promise<number | null> => {
+  return getPrimaryRound(undefined, userId);
+};
+
+/**
+ * Default round for all-users bets view: the most recent round whose global
+ * betting window has closed (by startTime), so users see results from the
+ * last playable round — not the round still open for betting.
+ */
+export async function getDefaultAllUsersBetsRound(
+  seasonId?: string
+): Promise<number | null> {
+  try {
+    const path = seasonId ? `season/${seasonId}` : getSeasonPath();
+    const sortedRounds = await getSortedRounds(path);
 
     if (sortedRounds.length === 0) {
       return null;
     }
 
-    const now = getTrustedNow();
-    const seasonPath = getSeasonPath();
-    let lastCalculatedRoundNumber: number | null = null;
+    let lastClosedRound: number | null = null;
 
     for (const round of sortedRounds) {
-      if (await isRoundFullyCalculated(seasonPath, round.number)) {
-        lastCalculatedRoundNumber = round.number;
+      if (round.startTime && isDeadlinePassed(round.startTime)) {
+        lastClosedRound = round.number;
       }
     }
 
-    if (lastCalculatedRoundNumber !== null) {
-      const currentIndex = sortedRounds.findIndex(
-        (round) => round.number === lastCalculatedRoundNumber
-      );
-      if (currentIndex >= 0 && currentIndex < sortedRounds.length - 1) {
-        return sortedRounds[currentIndex + 1].number;
-      }
-    }
-
-    const openBettingRound = sortedRounds.find(
-      (round) => !round.startTime || now < parseIsraelDateTime(round.startTime)
-    );
-    if (openBettingRound) {
-      return openBettingRound.number;
-    }
-
-    return resolveCurrentRound(sortedRounds);
+    return lastClosedRound ?? sortedRounds[0].number;
   } catch (error) {
-    console.error('Error getting default betting round:', error);
+    console.error('Error getting default all-users bets round:', error);
     return null;
   }
-};
+}

@@ -18,7 +18,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import LoadingScreen from "@/components/layout/LoadingScreen";
 import { PlayerBets } from "@/types";
 import { getLeaderboard } from "@/lib/playerBets";
-import { getCurrentSeason, getCurrentSeasonData, getLastCalculatedRound, getSortedRounds } from "@/lib/season";
+import { getCurrentSeason, getCurrentSeasonData, getLastCalculatedRound, getSortedRounds, getFullyCalculatedRounds } from "@/lib/season";
 import { cn } from "@/lib/utils";
 
 function sumMap(map?: Record<number, number>): number {
@@ -37,6 +37,7 @@ export default function LeaderboardPage() {
     const [roundNames, setRoundNames] = useState<Record<number, string>>({});
     const [sortedRoundNumbers, setSortedRoundNumbers] = useState<number[]>([]);
     const [lastCalculatedRound, setLastCalculatedRound] = useState<number | null>(null);
+    const [calculatedRounds, setCalculatedRounds] = useState<Set<number>>(new Set());
     const [expandedUids, setExpandedUids] = useState<Set<string>>(new Set());
     const [showRoundBreakdown, setShowRoundBreakdown] = useState(false);
 
@@ -46,7 +47,13 @@ export default function LeaderboardPage() {
         checkPreSeasonPointsCalculated();
         loadRoundNames();
         loadLastCalculatedRound();
+        loadCalculatedRounds();
     }, []);
+
+    const loadCalculatedRounds = async () => {
+        const rounds = await getFullyCalculatedRounds();
+        setCalculatedRounds(new Set(rounds));
+    };
 
     const loadLastCalculatedRound = async () => {
         const round = await getLastCalculatedRound();
@@ -332,9 +339,6 @@ export default function LeaderboardPage() {
 
                             {showRoundBreakdown && (
                                 <div className="round-breakdown-panel">
-                                    <p className="border-b border-border/50 px-3 py-1.5 text-[10px] text-muted-foreground sm:text-xs">
-                                        מחזורים אחרונים ליד השם · גלול לשאר המחזורים
-                                    </p>
                                     <div className="round-breakdown-scroll">
                                         <table className="round-points-table">
                                             <thead>
@@ -379,17 +383,25 @@ export default function LeaderboardPage() {
                                                         </td>
                                                         {roundsNewestFirst.map((round) => {
                                                             const name = roundNames[round] || `מחזור ${round}`;
+                                                            const resultsEntered = calculatedRounds.has(round);
                                                             const pts = entry.roundPoints?.[round] ?? 0;
+                                                            const display = resultsEntered ? String(pts) : '—';
                                                             return (
                                                                 <td
                                                                     key={round}
                                                                     className={cn(
                                                                         "round-col",
-                                                                        pts > 0 && "round-col-has-points"
+                                                                        !resultsEntered && "round-col-pending",
+                                                                        resultsEntered && pts > 0 && "round-col-has-points",
+                                                                        resultsEntered && pts === 0 && "round-col-zero"
                                                                     )}
-                                                                    title={`${name}: ${pts} נקודות`}
+                                                                    title={
+                                                                        resultsEntered
+                                                                            ? `${name}: ${pts} נקודות`
+                                                                            : `${name}: ממתין לתוצאות`
+                                                                    }
                                                                 >
-                                                                    {pts > 0 ? pts : '·'}
+                                                                    {display}
                                                                 </td>
                                                             );
                                                         })}

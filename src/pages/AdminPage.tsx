@@ -11,7 +11,7 @@ import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc, writeBatch, get
 
 import { db } from "@/lib/firebase";
 import { getCurrentSeason, openNewSeason, getNextSeasonId, formatSeasonDisplay, setActiveSeason, setSeasonOpen, listSeasonIds, sortSeasonIdsDesc } from "@/lib/season";
-import { sortRoundsByStartTime, sortMatchesByStartTime } from "@/lib/sorting";
+import { sortRoundsByStartTimeDesc, sortMatchesByStartTime } from "@/lib/sorting";
 import { calculateRoundPoints, calculatePreSeasonPoints, deleteRoundPoints, recalculatePlayerPoints, cancelMatch, restoreCancelledMatch, grantUserBettingExtension, revokeUserBettingExtension } from "@/lib/playerBets";
 import { formatIsraelDateTime } from "@/lib/israelTime";
 import { isDeadlinePassed } from "@/lib/serverTime";
@@ -166,7 +166,7 @@ export default function AdminPage() {
                 })
             );
             
-            setRounds(sortRoundsByStartTime(roundsWithMatches));
+            setRounds(sortRoundsByStartTimeDesc(roundsWithMatches));
 
             // טעינת קבוצות
             const teamsSnapshot = await getDocs(collection(db, 'season', seasonPath, 'teams'));

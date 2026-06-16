@@ -21,11 +21,19 @@ function getMatchSortTime(match: { startTime?: string; date?: string }): number 
 export function sortRoundsByStartTime<T extends { startTime?: string; number?: number }>(
   rounds: T[]
 ): T[] {
+  // Order by betting deadline (startTime), not round number or creation order.
   return [...rounds].sort((a, b) => {
     const timeDiff = getStartTimeValue(a.startTime) - getStartTimeValue(b.startTime);
     if (timeDiff !== 0) return timeDiff;
     return (a.number ?? 0) - (b.number ?? 0);
   });
+}
+
+/** Newest deadline first — for admin lists where recent rounds matter most. */
+export function sortRoundsByStartTimeDesc<T extends { startTime?: string; number?: number }>(
+  rounds: T[]
+): T[] {
+  return sortRoundsByStartTime(rounds).reverse();
 }
 
 export function sortMatchesByStartTime<T extends { startTime?: string; date?: string }>(

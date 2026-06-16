@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { getCurrentSeason, getCurrentRound, getSeasonPath, getCurrentSeasonData, getSortedRounds, getDefaultBettingRound } from '@/lib/season';
+import { getCurrentSeason, getSeasonPath, getCurrentSeasonData, getSortedRounds, getDefaultAllUsersBetsRound } from '@/lib/season';
 import { sortMatchesByStartTime } from '@/lib/sorting';
 import { ensureServerTimeSynced, isDeadlinePassed } from '@/lib/serverTime';
 import { formatIsraelDateTime, parseIsraelDateTime } from '@/lib/israelTime';
@@ -10,7 +10,7 @@ import { getPlayerRoundBets, getPlayerPreSeasonBets } from '@/lib/playerBets';
 import PageShell from '@/components/layout/PageShell';
 import PageHeader from '@/components/layout/PageHeader';
 import StatusBanner from '@/components/layout/StatusBanner';
-import { Clock, CheckCircle } from 'lucide-react';
+import { Clock, CheckCircle, Info } from 'lucide-react';
 import { Team, Player } from '@/types';
 
 const PRESEASON_CATEGORIES = [
@@ -49,7 +49,6 @@ const AllUsersBetsPage: React.FC = () => {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [rounds, setRounds] = useState<{ number: number; startTime: string; name?: string }[]>([]);
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
-  const [currentRound, setCurrentRound] = useState<number | null>(null);
   const [betsByUser, setBetsByUser] = useState<Record<string, Bet[]>>({});
   const [matchesMap, setMatchesMap] = useState<Record<string, MatchInfo>>({});
   const [sortedMatchIds, setSortedMatchIds] = useState<string[]>([]);
@@ -83,10 +82,8 @@ const AllUsersBetsPage: React.FC = () => {
       const roundsList = await getSortedRounds(seasonPath);
       setRounds(roundsList);
 
-      const defaultRound = await getDefaultBettingRound();
-      const currRound = await getCurrentRound();
-      setCurrentRound(currRound);
-      setSelectedRound(defaultRound ?? currRound);
+      const defaultRound = await getDefaultAllUsersBetsRound(seasonId);
+      setSelectedRound(defaultRound);
       setLoading(false);
     };
     fetchData();
@@ -161,7 +158,7 @@ const AllUsersBetsPage: React.FC = () => {
     if (users.length && rounds.length && selectedRound) {
       fetchBetsAndMatches();
     }
-  }, [selectedRound, users, rounds, currentRound]);
+  }, [selectedRound, users, rounds]);
 
   // Fetch teams and players for preseason bets display
   useEffect(() => {
@@ -430,12 +427,17 @@ const AllUsersBetsPage: React.FC = () => {
               <>
                 {/* הודעות מידע למחזור */}
                 {(() => {
-                  const hasAnyResults = Object.values(matchesMap).some(match => 
-                    !match.isCancelled && 
-                    typeof match.actualHomeScore === 'number' && 
-                    typeof match.actualAwayScore === 'number'
+                  const selectedRoundName =
+                    rounds.find((r) => r.number === selectedRound)?.name ||
+                    `מחזור ${selectedRound}`;
+                  const hasBets = Object.keys(betsByUser).length > 0;
+                  const hasAnyResults = Object.values(matchesMap).some(
+                    (match) =>
+                      !match.isCancelled &&
+                      typeof match.actualHomeScore === 'number' &&
+                      typeof match.actualAwayScore === 'number'
                   );
-                  
+
                   return (
                     <div className="space-y-2">
                       {!roundClosed && (
@@ -443,11 +445,20 @@ const AllUsersBetsPage: React.FC = () => {
                           variant="info"
                           icon={Clock}
                           title="חלון הימורים פתוח"
-                          description={`ההימורים יוצגו כאשר יסגר חלון ההזדמנויות להימורים ל${rounds.find(r => r.number === selectedRound)?.name || `מחזור ${selectedRound}`}`}
+                          description={`ההימורים יוצגו כאשר יסגר חלון ההזדמנויות להימורים ל${selectedRoundName}`}
                         />
                       )}
 
-                      {roundClosed && !hasAnyResults && Object.keys(betsByUser).length > 0 && (
+                      {roundClosed && !hasBets && (
+                        <StatusBanner
+                          variant="info"
+                          icon={Info}
+                          title="אין הימורים להצגה"
+                          description={`לא הוזנו הימורים ל${selectedRoundName} על ידי אף משתמש`}
+                        />
+                      )}
+
+                      {roundClosed && hasBets && !hasAnyResults && (
                         <StatusBanner
                           variant="warning"
                           icon={CheckCircle}
@@ -455,20 +466,10 @@ const AllUsersBetsPage: React.FC = () => {
                           description='התוצאות יפורסמו כאשר יוזנו ע"י אדמין המערכת'
                         />
                       )}
-
-                      {roundClosed && Object.keys(betsByUser).length === 0 && (
-                        <StatusBanner
-                          variant="info"
-                          icon={Clock}
-                          title="חלון הימורים פתוח"
-                          description={`ההימורים יוצגו כאשר יסגר חלון ההזדמנויות להימורים ל${rounds.find(r => r.number === selectedRound)?.name || `מחזור ${selectedRound}`}`}
-                        />
-                      )}
                     </div>
                   );
                 })()}
                 
-                {/* טבלת ההימורים - מוצגת רק כאשר המחזור סגור ויש הימורים */}
                 {roundClosed && Object.keys(betsByUser).length > 0 && (
                   <>
                     <div className="all-users-legend">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ElementType } from "react";
+import { useState, useEffect, useRef, useMemo, type ElementType } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSeason } from "@/contexts/SeasonContext";
@@ -12,17 +12,28 @@ import {
     History,
     ChevronLeft,
     BarChart3,
-    CalendarClock,
 } from "lucide-react";
-import { formatSeasonDisplay, getHomeRoundInfo, listSeasonIds, getCurrentSeasonData, parseSeasonStartField } from "@/lib/season";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import {
+    formatSeasonDisplay,
+    listSeasonIds,
+    getCurrentSeasonData,
+    parseSeasonStartField,
+} from "@/lib/season";
+import {
+    subscribeToSeasonRounds,
+    getOpenRoundsFromAll,
+} from "@/lib/roundSubscriptions";
 import {
     ensureServerTimeSynced,
     getBettingWindowStatus,
     formatBettingStatusLine,
     type BettingWindowStatus,
 } from "@/lib/serverTime";
+import {
+    getHomeDisplayRounds,
+    type ActiveRoundBetting,
+} from "@/lib/activeBettingRounds";
+import type { RoundSummary } from "@/lib/sorting";
 import { cn } from "@/lib/utils";
 import PreviousSeasonTableModal, { getPreviousSeasonDismissKey } from "@/components/PreviousSeasonTableModal";
 import PageShell from "@/components/layout/PageShell";
@@ -51,6 +62,21 @@ function BettingStatusLine({
     );
 }
 
+function ActiveRoundStatusRow({
+    round,
+    status,
+}: {
+    round: ActiveRoundBetting;
+    status: BettingWindowStatus;
+}) {
+    return (
+        <div className="home-active-round-row">
+            <span className="home-active-round-name">{round.name}</span>
+            <BettingStatusLine status={status} className="home-active-round-status" />
+        </div>
+    );
+}
+
 interface NavRowProps {
     icon: ElementType;
     title: string;
@@ -71,7 +97,7 @@ function NavRow({ icon: Icon, title, subtitle, onClick, accent = "slate", bettin
             <div className="home-nav-row-body">
                 <span className="home-nav-row-title">{title}</span>
                 {subtitle && <span className="home-nav-row-sub">{subtitle}</span>}
-                {bettingStatus?.isOpen && (
+                {bettingStatus && (
                     <BettingStatusLine status={bettingStatus} className="home-nav-row-status" />
                 )}
             </div>
@@ -86,28 +112,32 @@ export default function HomePage() {
     const { user, logout } = useAuth();
     const { activeSeasonId, previousSeasonIds } = useSeason();
     const navigate = useNavigate();
-    const [currentRoundName, setCurrentRoundName] = useState('');
-    const [currentRoundNumber, setCurrentRoundNumber] = useState<number | null>(null);
-    const [nextRoundTime, setNextRoundTime] = useState('');
+    const [activeRounds, setActiveRounds] = useState<ActiveRoundBetting[]>([]);
+    const [sortedRounds, setSortedRounds] = useState<RoundSummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [modalSeasonId, setModalSeasonId] = useState<string | null>(null);
     const [showArchiveModal, setShowArchiveModal] = useState(false);
     const [allPreviousSeasonIds, setAllPreviousSeasonIds] = useState<string[]>([]);
-    const [roundStatus, setRoundStatus] = useState<BettingWindowStatus | null>(null);
     const [preSeasonStatus, setPreSeasonStatus] = useState<BettingWindowStatus | null>(null);
-    const roundBettingSourceRef = useRef<{
-        deadline: string | null;
-        extensions?: Record<string, string>;
-    } | null>(null);
+    const activeRoundsRef = useRef<ActiveRoundBetting[]>([]);
     const preSeasonDeadlineRef = useRef<string | null>(null);
+    const [statusTick, setStatusTick] = useState(0);
+
+    const displayRounds = useMemo(
+        () => getHomeDisplayRounds(activeRounds, sortedRounds),
+        [activeRounds, sortedRounds]
+    );
+
+    const roundStatuses = useMemo(
+        () =>
+            displayRounds.map((round) =>
+                getBettingWindowStatus(round.startTime, user?.uid, round.bettingExtensions)
+            ),
+        [displayRounds, user?.uid, statusTick]
+    );
 
     const refreshBettingStatuses = () => {
-        const roundSource = roundBettingSourceRef.current;
-        if (roundSource) {
-            setRoundStatus(
-                getBettingWindowStatus(roundSource.deadline, user?.uid, roundSource.extensions)
-            );
-        }
+        setStatusTick((tick) => tick + 1);
         const seasonDeadline = preSeasonDeadlineRef.current;
         if (seasonDeadline) {
             setPreSeasonStatus(getBettingWindowStatus(seasonDeadline));
@@ -119,10 +149,10 @@ export default function HomePage() {
     useEffect(() => {
         let cancelled = false;
         let timer: ReturnType<typeof setInterval> | undefined;
+        const seasonPath = `season/${activeSeasonId}`;
 
-        const load = async () => {
+        const init = async () => {
             setLoading(true);
-            setRoundStatus(null);
             setPreSeasonStatus(null);
             try {
                 if (user?.uid) {
@@ -130,55 +160,36 @@ export default function HomePage() {
                 }
                 if (cancelled) return;
 
-                const info = await getHomeRoundInfo(activeSeasonId);
-                if (cancelled) return;
-
-                setCurrentRoundNumber(info.currentRoundNumber);
-                setCurrentRoundName(info.currentRoundName);
-                setNextRoundTime(info.nextRoundTime);
-
-                if (info.currentRoundNumber) {
-                    const roundDoc = await getDoc(
-                        doc(db, 'season', activeSeasonId, 'rounds', String(info.currentRoundNumber))
-                    );
-                    const data = roundDoc.data();
-                    roundBettingSourceRef.current = {
-                        deadline: data?.startTime || null,
-                        extensions: data?.bettingExtensions,
-                    };
-                } else {
-                    roundBettingSourceRef.current = null;
-                }
-
                 const seasonData = await getCurrentSeasonData();
                 if (cancelled) return;
 
                 preSeasonDeadlineRef.current = parseSeasonStartField(seasonData?.seasonStart);
-
-                if (info.currentRoundNumber && roundBettingSourceRef.current) {
-                    setRoundStatus(
-                        getBettingWindowStatus(
-                            roundBettingSourceRef.current.deadline,
-                            user?.uid,
-                            roundBettingSourceRef.current.extensions
-                        )
-                    );
-                }
-
                 const seasonDeadline = preSeasonDeadlineRef.current;
                 setPreSeasonStatus(seasonDeadline ? getBettingWindowStatus(seasonDeadline) : null);
-
-                timer = setInterval(refreshBettingStatuses, 60_000);
             } catch (error) {
                 console.error('Error loading home round info:', error);
-            } finally {
-                if (!cancelled) setLoading(false);
             }
         };
 
-        load();
+        const unsubscribe = subscribeToSeasonRounds(
+            seasonPath,
+            (rounds, allRounds) => {
+                if (cancelled) return;
+                setSortedRounds(rounds);
+                const openRounds = getOpenRoundsFromAll(allRounds, user?.uid);
+                activeRoundsRef.current = openRounds;
+                setActiveRounds(openRounds);
+                setLoading(false);
+            },
+            (error) => console.error('Error subscribing to rounds:', error)
+        );
+
+        init();
+        timer = setInterval(refreshBettingStatuses, 60_000);
+
         return () => {
             cancelled = true;
+            unsubscribe();
             if (timer) clearInterval(timer);
         };
     }, [activeSeasonId, user?.uid]);
@@ -213,7 +224,14 @@ export default function HomePage() {
     };
 
     const displayName = user?.displayName || user?.email?.split('@')[0] || 'שחקן';
-    const roundDisplay = loading ? '…' : (currentRoundName || (currentRoundNumber ? `מחזור ${currentRoundNumber}` : '—'));
+
+    const roundCtaSubtitle = loading
+        ? 'טוען...'
+        : displayRounds.length === 0
+            ? 'אין מחזור פתוח להימורים כרגע'
+            : displayRounds.length === 1
+                ? `ניחוש תוצאות ל${displayRounds[0].name}`
+                : `נדרש להזין הימורים ל-${displayRounds.length} מחזורים עם סגירה קרובה`;
 
     return (
         <PageShell showThemeToggle={false} className="home-page">
@@ -274,32 +292,7 @@ export default function HomePage() {
                     </div>
                 </header>
 
-                <div className="home-hero-overlap">
-                    <section className="home-round-card" aria-label="סטטוס מחזור">
-                        <div className="home-round-card-top">
-                            <span className="home-round-card-label">מחזור נוכחי</span>
-                            <span className="home-live-badge">
-                                <span className="home-live-dot" aria-hidden />
-                                LIVE
-                            </span>
-                        </div>
-                        <div className="home-round-card-bottom">
-                            <p className="home-round-card-name">{roundDisplay}</p>
-                            {!loading && roundStatus && (
-                                <BettingStatusLine status={roundStatus} className="home-round-card-status" />
-                            )}
-                        </div>
-                        {nextRoundTime && (
-                            <div className="home-round-card-next">
-                                <CalendarClock size={13} className="shrink-0 opacity-60" aria-hidden />
-                                <span className="home-round-card-next-label">מחזור הבא</span>
-                                <span className="home-round-card-next-value">{nextRoundTime}</span>
-                            </div>
-                        )}
-                    </section>
-                </div>
-
-                <main className="home-main">
+                <main className="home-main home-main--overlap">
                     <section className="home-section" aria-label="הימורים">
                         <h2 className="home-section-title">הימורים</h2>
 
@@ -311,7 +304,23 @@ export default function HomePage() {
                             <ChevronLeft size={18} className="home-primary-cta-chevron" aria-hidden />
                             <div className="home-primary-cta-body">
                                 <span className="home-primary-cta-title">הימורי מחזור</span>
-                                <span className="home-primary-cta-sub">ניחוש תוצאות למחזור הנוכחי</span>
+                                <span className="home-primary-cta-sub">{roundCtaSubtitle}</span>
+                                {!loading && displayRounds.length > 0 && (
+                                    <div
+                                        className={cn(
+                                            "home-primary-cta-rounds",
+                                            displayRounds.length > 1 && "home-primary-cta-rounds--split"
+                                        )}
+                                    >
+                                        {displayRounds.map((round, index) => (
+                                            <ActiveRoundStatusRow
+                                                key={round.number}
+                                                round={round}
+                                                status={roundStatuses[index]}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                             <div className="home-primary-cta-icon" aria-hidden>
                                 <Target size={22} strokeWidth={2} />
