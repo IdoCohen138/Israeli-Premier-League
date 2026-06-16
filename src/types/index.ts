@@ -44,6 +44,8 @@ export interface Round {
   startTime: string;
   isActive: boolean;
   bettingExtensions?: Record<string, string>; // uid -> ISO datetime (Israel local) until which user-specific betting is allowed
+  /** Set when all active matches have results and points calculated. */
+  fullyCalculated?: boolean;
 }
 
 export interface Season {

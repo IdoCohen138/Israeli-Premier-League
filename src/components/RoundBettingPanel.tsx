@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import { Clock } from "lucide-react";
+import { Clock, ListX } from "lucide-react";
 import { Match, Round, Bet, Team } from "@/types";
 import { collection, doc, getDocs, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -18,6 +18,7 @@ import {
 import { formatIsraelDateTime } from "@/lib/israelTime";
 import TeamLogo from "@/components/TeamLogo";
 import StatusBanner from "@/components/layout/StatusBanner";
+import EmptyState from "@/components/layout/EmptyState";
 
 interface RoundBettingPanelProps {
     roundNumber: number;
@@ -300,7 +301,14 @@ export default function RoundBettingPanel({
 
             {currentRound && (
                 <div className="space-y-2">
-                    {currentRound.matchesDetails?.map((match) => (
+                    {(currentRound.matchesDetails?.length ?? 0) === 0 ? (
+                        <EmptyState
+                            icon={ListX}
+                            title="אין משחקים במחזור"
+                            description="למחזור זה עדיין לא שויכו משחקים. כשהמנהל יוסיף משחקים, תוכל להזין הימורים כאן."
+                        />
+                    ) : (
+                    currentRound.matchesDetails?.map((match) => (
                         <Card key={match.uid}>
                             <CardContent className="p-3 sm:p-4">
                                 <div className="space-y-3">
@@ -383,7 +391,8 @@ export default function RoundBettingPanel({
                                 </div>
                             </CardContent>
                         </Card>
-                    ))}
+                    ))
+                    )}
                 </div>
             )}
         </div>

@@ -280,6 +280,7 @@ export default function PreSeasonBetsPage() {
 
     const relegationPicks = getRelegationPicks(currentBets);
     const filledPicks = countFilledPicks(currentBets);
+    const isProgressComplete = filledPicks === TOTAL_PRESEASON_PICKS;
 
     const progressChecks = [
         { label: "אלופה", done: !!currentBets.champion },
@@ -428,20 +429,44 @@ export default function PreSeasonBetsPage() {
                 <StatusBanner variant="closed" icon={AlertCircle} title="שגיאה" description={error} />
             )}
 
-            <Card className="border-primary/20 bg-primary/5">
+            <Card
+                className={cn(
+                    isProgressComplete
+                        ? "border-emerald-500/30 bg-emerald-500/10"
+                        : "border-red-500/30 bg-red-500/10"
+                )}
+            >
                 <CardContent className="p-4">
                     <div className="mb-2 flex items-center justify-between text-sm">
                         <span className="font-medium">התקדמות</span>
-                        <span className="text-muted-foreground">
+                        <span
+                            className={cn(
+                                "font-semibold tabular-nums",
+                                isProgressComplete ? "text-emerald-400" : "text-red-400"
+                            )}
+                        >
                             {filledPicks}/{TOTAL_PRESEASON_PICKS} בחירות
                         </span>
                     </div>
-                    <div className="mb-3 h-2 overflow-hidden rounded-full bg-secondary">
+                    <div
+                        className={cn(
+                            "mb-3 h-2 overflow-hidden rounded-full",
+                            isProgressComplete ? "bg-emerald-500/20" : "bg-red-500/20"
+                        )}
+                    >
                         <div
-                            className="h-full rounded-full bg-primary transition-all duration-300"
+                            className={cn(
+                                "h-full rounded-full transition-all duration-300",
+                                isProgressComplete ? "bg-emerald-500" : "bg-red-500"
+                            )}
                             style={{ width: `${(filledPicks / TOTAL_PRESEASON_PICKS) * 100}%` }}
                         />
                     </div>
+                    {!isProgressComplete && (
+                        <p className="mb-2 text-xs font-medium text-red-400">
+                            יש למלא את כל 6 ההימורים
+                        </p>
+                    )}
                     <div className="flex flex-wrap gap-1.5">
                         {progressChecks.map((item) => (
                             <span
@@ -450,7 +475,7 @@ export default function PreSeasonBetsPage() {
                                     "rounded-full px-2 py-0.5 text-[11px] font-medium",
                                     item.done
                                         ? "bg-emerald-500/20 text-emerald-300"
-                                        : "bg-secondary text-muted-foreground"
+                                        : "bg-red-500/20 text-red-300"
                                 )}
                             >
                                 {item.done ? "✓ " : ""}
@@ -533,26 +558,78 @@ export default function PreSeasonBetsPage() {
                                 <TrendingDown className="h-4 w-4 text-red-400" />
                                 שתי קבוצות שירדו ליגה
                             </h3>
-                            <span className="text-xs text-muted-foreground">
-                                {relegationPicks.length}/2 · 5 נק׳ לכל פגיעה
-                            </span>
+                            <span className="text-xs text-muted-foreground">5 נק׳ לכל פגיעה</span>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                            בחר שתי קבוצות. אין חשיבות לסדר — לחיצה נוספת מסירה בחירה.
-                        </p>
-                        {relegationPicks.length > 0 && (
-                            <div className="grid gap-2 sm:grid-cols-2">
-                                {relegationPicks.map((teamId) => (
-                                    <SelectionChip
-                                        key={teamId}
-                                        label={getTeamName(teamId) ?? ""}
-                                        teamId={teamId}
-                                        onClear={() => handleRelegationToggle(teamId)}
-                                        disabled={!isBettingAllowed}
-                                    />
-                                ))}
+
+                        <div
+                            className={cn(
+                                "space-y-3 rounded-xl border p-3",
+                                relegationPicks.length === 2
+                                    ? "border-emerald-500/30 bg-emerald-500/10"
+                                    : "border-red-500/30 bg-red-500/10"
+                            )}
+                        >
+                            <div className="flex items-center justify-between gap-2">
+                                <p
+                                    className={cn(
+                                        "text-xs font-semibold",
+                                        relegationPicks.length === 2 ? "text-emerald-400" : "text-red-400"
+                                    )}
+                                >
+                                    {relegationPicks.length === 0 &&
+                                        "יש לבחור שתי קבוצות — לא מספיק לבחור רק אחת"}
+                                    {relegationPicks.length === 1 &&
+                                        "נבחרה קבוצה אחת — בחר עוד קבוצה אחת"}
+                                    {relegationPicks.length === 2 && "נבחרו שתי הקבוצות"}
+                                </p>
+                                <span
+                                    className={cn(
+                                        "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums",
+                                        relegationPicks.length === 2
+                                            ? "bg-emerald-500/20 text-emerald-300"
+                                            : "bg-red-500/20 text-red-300"
+                                    )}
+                                >
+                                    {relegationPicks.length}/2
+                                </span>
                             </div>
-                        )}
+
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                {[currentBets.relegation1, currentBets.relegation2].map((teamId, index) =>
+                                    teamId ? (
+                                        <SelectionChip
+                                            key={teamId}
+                                            label={getTeamName(teamId) ?? ""}
+                                            sublabel={`בחירה ${index + 1}`}
+                                            teamId={teamId}
+                                            onClear={() => handleRelegationToggle(teamId)}
+                                            disabled={!isBettingAllowed}
+                                        />
+                                    ) : (
+                                        <div
+                                            key={`empty-${index}`}
+                                            className="flex items-center gap-2 rounded-xl border border-dashed border-red-500/40 bg-red-500/5 px-3 py-2.5"
+                                        >
+                                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-xs font-bold text-red-400">
+                                                {index + 1}
+                                            </span>
+                                            <div className="min-w-0 flex-1 text-right">
+                                                <div className="text-xs font-medium text-red-400">
+                                                    {index === 0 ? "בחר קבוצה ראשונה" : "בחר קבוצה שנייה"}
+                                                </div>
+                                                <div className="text-[10px] text-muted-foreground">
+                                                    לחץ על קבוצה מהרשימה למטה
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )
+                                )}
+                            </div>
+                        </div>
+
+                        <p className="text-xs text-muted-foreground">
+                            אין חשיבות לסדר הבחירות — לחיצה נוספת על קבוצה נבחרת מסירה אותה.
+                        </p>
                         <TeamPicker
                             teams={filteredLeagueTeams}
                             selectedIds={relegationPicks}

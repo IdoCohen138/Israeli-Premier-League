@@ -2,6 +2,7 @@ export interface RoundSummary {
   number: number;
   startTime: string;
   name?: string;
+  fullyCalculated?: boolean;
 }
 
 import { getStartTimeValue, parseIsraelDateTime } from './israelTime';

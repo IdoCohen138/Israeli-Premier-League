@@ -61,22 +61,27 @@ export interface RoundNavigationUnit {
 type RoundTimelineEntry = Pick<RoundSummary, 'number' | 'startTime'>;
 
 /**
- * Chain consecutive rounds whose deadlines are < 60h apart into one navigation unit.
+ * Group consecutive rounds whose deadlines are all within 60h of the cluster
+ * anchor (the earliest deadline in the group) — not transitively via neighbors.
+ *
+ * Example: R30 May 2 20:00, R31 May 3 19:30 (~24h), R32 May 5 20:10 (~72h from R30)
+ * → [30, 31] grouped, [32] alone — even though R31→R32 is under 60h.
  */
 export function buildRoundNavigationUnits(rounds: RoundTimelineEntry[]): RoundNavigationUnit[] {
   const units: RoundNavigationUnit[] = [];
   let i = 0;
 
   while (i < rounds.length) {
-    const cluster: RoundTimelineEntry[] = [rounds[i]];
+    const anchor = rounds[i];
+    const cluster: RoundTimelineEntry[] = [anchor];
     let j = i;
 
     while (j + 1 < rounds.length) {
-      const hoursBetween = getHoursBetweenDeadlines(
-        { startTime: cluster[cluster.length - 1].startTime || '' },
+      const hoursFromAnchor = getHoursBetweenDeadlines(
+        { startTime: anchor.startTime || '' },
         { startTime: rounds[j + 1].startTime || '' }
       );
-      if (hoursBetween !== null && hoursBetween >= 0 && hoursBetween < HOURS_60) {
+      if (hoursFromAnchor !== null && hoursFromAnchor >= 0 && hoursFromAnchor < HOURS_60) {
         cluster.push(rounds[j + 1]);
         j += 1;
       } else {
@@ -110,7 +115,7 @@ export function formatNavigationUnitLabel(
 }
 
 /**
- * Home card: all open rounds in the 60h cluster that contains the earliest open round.
+ * Home card: open rounds in the same anchor-based 60h cluster as the earliest open round.
  */
 export function getHomeDisplayRounds(
   openRounds: ActiveRoundBetting[],

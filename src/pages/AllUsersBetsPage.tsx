@@ -10,7 +10,9 @@ import { getPlayerRoundBets, getPlayerPreSeasonBets } from '@/lib/playerBets';
 import PageShell from '@/components/layout/PageShell';
 import PageHeader from '@/components/layout/PageHeader';
 import StatusBanner from '@/components/layout/StatusBanner';
-import { Clock, CheckCircle, Info } from 'lucide-react';
+import LoadingScreen from '@/components/layout/LoadingScreen';
+import EmptyState from '@/components/layout/EmptyState';
+import { Clock, CheckCircle, Info, Calendar, Users, ListX } from 'lucide-react';
 import { Team, Player } from '@/types';
 
 const PRESEASON_CATEGORIES = [
@@ -52,7 +54,8 @@ const AllUsersBetsPage: React.FC = () => {
   const [betsByUser, setBetsByUser] = useState<Record<string, Bet[]>>({});
   const [matchesMap, setMatchesMap] = useState<Record<string, MatchInfo>>({});
   const [sortedMatchIds, setSortedMatchIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [roundDataLoading, setRoundDataLoading] = useState(false);
   const [roundClosed, setRoundClosed] = useState(true);
   const [activeTab, setActiveTab] = useState<'round' | 'preseason'>('round');
   const [preSeasonBetsByUser, setPreSeasonBetsByUser] = useState<Record<string, any>>({});
@@ -65,7 +68,7 @@ const AllUsersBetsPage: React.FC = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
+      setInitialLoading(true);
       if (user) {
         await ensureServerTimeSynced(user.uid);
       }
@@ -84,7 +87,7 @@ const AllUsersBetsPage: React.FC = () => {
 
       const defaultRound = await getDefaultAllUsersBetsRound(seasonId);
       setSelectedRound(defaultRound);
-      setLoading(false);
+      setInitialLoading(false);
     };
     fetchData();
   }, [user]);
@@ -92,7 +95,7 @@ const AllUsersBetsPage: React.FC = () => {
   useEffect(() => {
     const fetchBetsAndMatches = async () => {
       if (!selectedRound) return;
-      setLoading(true);
+      setRoundDataLoading(true);
       let closed = true;
       let matchesMapLocal: Record<string, MatchInfo> = {};
       try {
@@ -153,12 +156,17 @@ const AllUsersBetsPage: React.FC = () => {
       } else {
         setBetsByUser({});
       }
-      setLoading(false);
+      setRoundDataLoading(false);
     };
     if (users.length && rounds.length && selectedRound) {
       fetchBetsAndMatches();
+    } else if (!initialLoading && rounds.length && selectedRound) {
+      setRoundDataLoading(false);
+      setBetsByUser({});
+      setMatchesMap({});
+      setSortedMatchIds([]);
     }
-  }, [selectedRound, users, rounds]);
+  }, [selectedRound, users, rounds, initialLoading]);
 
   // Fetch teams and players for preseason bets display
   useEffect(() => {
@@ -400,10 +408,22 @@ const AllUsersBetsPage: React.FC = () => {
     );
   };
 
+  if (initialLoading) {
+    return <LoadingScreen label="טוען הימורי משתמשים..." />;
+  }
+
   return (
     <PageShell>
       <PageHeader title="הימורי כל המשתמשים" />
 
+      {rounds.length === 0 ? (
+        <EmptyState
+          icon={Calendar}
+          title="אין מחזורים בעונה"
+          description="כשייווצרו מחזורים וייסגרו ההימורים, תוכל לראות כאן את ההימורים של כל המשתמשים."
+        />
+      ) : (
+      <>
       <div className="segmented-control">
         <button type="button" className={`segmented-item ${activeTab === 'round' ? 'segmented-item-active' : ''}`}
           onClick={() => setActiveTab('round')}>הימורי מחזור</button>
@@ -413,6 +433,14 @@ const AllUsersBetsPage: React.FC = () => {
         {/* Tab Content */}
         {activeTab === 'round' && (
           <>
+            {users.length === 0 ? (
+              <EmptyState
+                icon={Users}
+                title="אין משתמשים עם הימורים"
+                description="עדיין אין משתמשים שנרשמו להימורים בעונה זו. כשמשתמשים יזינו הימורים, הם יופיעו כאן."
+              />
+            ) : (
+            <>
             <div className="flex items-center gap-2">
               <label htmlFor="round-select" className="shrink-0 text-sm font-medium text-muted-foreground">מחזור:</label>
               <select id="round-select" className="app-select flex-1" value={selectedRound ?? ''}
@@ -423,9 +451,10 @@ const AllUsersBetsPage: React.FC = () => {
               </select>
             </div>
 
-            {!loading && (
+            {roundDataLoading ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">טוען נתוני מחזור...</p>
+            ) : (
               <>
-                {/* הודעות מידע למחזור */}
                 {(() => {
                   const selectedRoundName =
                     rounds.find((r) => r.number === selectedRound)?.name ||
@@ -437,10 +466,11 @@ const AllUsersBetsPage: React.FC = () => {
                       typeof match.actualHomeScore === 'number' &&
                       typeof match.actualAwayScore === 'number'
                   );
+                  const hasMatches = sortedMatchIds.length > 0;
 
                   return (
                     <div className="space-y-2">
-                      {!roundClosed && (
+                      {hasMatches && !roundClosed && (
                         <StatusBanner
                           variant="info"
                           icon={Clock}
@@ -449,28 +479,35 @@ const AllUsersBetsPage: React.FC = () => {
                         />
                       )}
 
-                      {roundClosed && !hasBets && (
-                        <StatusBanner
-                          variant="info"
-                          icon={Info}
-                          title="אין הימורים להצגה"
-                          description={`לא הוזנו הימורים ל${selectedRoundName} על ידי אף משתמש`}
+                      {!hasMatches && (
+                        <EmptyState
+                          icon={ListX}
+                          title="אין משחקים במחזור"
+                          description={`ל${selectedRoundName} לא שויכו משחקים עדיין.`}
                         />
                       )}
 
-                      {roundClosed && hasBets && !hasAnyResults && (
+                      {hasMatches && roundClosed && !hasBets && (
+                        <EmptyState
+                          icon={Users}
+                          title="אין הימורים להצגה"
+                          description={`לא הוזנו הימורים ל${selectedRoundName} על ידי אף משתמש.`}
+                        />
+                      )}
+
+                      {hasMatches && roundClosed && hasBets && !hasAnyResults && (
                         <StatusBanner
                           variant="warning"
                           icon={CheckCircle}
                           title="ממתין לתוצאות"
-                          description='התוצאות יפורסמו כאשר יוזנו ע"י אדמין המערכת'
+                          description='התוצאות יפורסמו כאשר יוזנו ע"י מנהל המערכת. לאחר מכן תוצגו הנקודות לכל משתמש.'
                         />
                       )}
                     </div>
                   );
                 })()}
                 
-                {roundClosed && Object.keys(betsByUser).length > 0 && (
+                {roundClosed && Object.keys(betsByUser).length > 0 && sortedMatchIds.length > 0 && (
                   <>
                     <div className="all-users-legend">
                       <div className="flex items-center gap-1">
@@ -528,11 +565,26 @@ const AllUsersBetsPage: React.FC = () => {
                 )}
               </>
             )}
+            </>
+            )}
           </>
         )}
         {activeTab === 'preseason' && (
           seasonStarted ? (
             <>
+              {users.length === 0 ? (
+                <EmptyState
+                  icon={Users}
+                  title="אין משתמשים"
+                  description="עדיין אין משתמשים שנרשמו להימורים מקדימים."
+                />
+              ) : Object.keys(preSeasonBetsByUser).length === 0 ? (
+                <EmptyState
+                  icon={Info}
+                  title="אין הימורים מקדימים"
+                  description="אף משתמש לא הזין עדיין הימורים מקדימים לעונה."
+                />
+              ) : (
               <div className="space-y-2.5">
                   {PRESEASON_CATEGORIES.map(({ key, label }) => {
                     const resultDisplay = getPreseasonResult(key);
@@ -554,22 +606,23 @@ const AllUsersBetsPage: React.FC = () => {
                       </div>
                     );
                   })}
-                  
-                  {users.length === 0 && (
-                    <div className="py-8 text-center text-muted-foreground">אין משתמשים להצגה</div>
-                  )}
-                  {users.length > 0 && Object.keys(preSeasonBetsByUser).length === 0 && (
-                    <div className="py-8 text-center text-muted-foreground">אין הימורים מקדימים להצגה</div>
-                  )}
               </div>
+              )}
             </>
           ) : (
-            <div className="py-8 text-center text-sm font-semibold text-red-400">
-              הימורים מקדימים יוצגו רק לאחר תחילת העונה ({seasonStartDate ? formatIsraelDateTime(seasonStartDate) : ''})
-            </div>
+            <EmptyState
+              icon={Clock}
+              title="הימורים מקדימים עדיין לא נחשפו"
+              description={
+                seasonStartDate
+                  ? `הימורי כל המשתמשים להימורים מקדימים יוצגו לאחר תחילת העונה (${formatIsraelDateTime(seasonStartDate)}).`
+                  : 'הימורים מקדימים יוצגו לאחר שתוגדר ותחלוף שעת תחילת העונה.'
+              }
+            />
           )
         )}
-        {loading && <p className="py-4 text-center text-sm text-muted-foreground">טוען...</p>}
+      </>
+      )}
     </PageShell>
   );
 };

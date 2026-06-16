@@ -12,13 +12,16 @@ import {
     ChevronUp,
     Target,
     Crosshair,
+    AlertCircle,
+    Calendar,
 } from "lucide-react";
 import PageShell from "@/components/layout/PageShell";
 import PageHeader from "@/components/layout/PageHeader";
 import LoadingScreen from "@/components/layout/LoadingScreen";
+import EmptyState from "@/components/layout/EmptyState";
 import { PlayerBets } from "@/types";
 import { getLeaderboard } from "@/lib/playerBets";
-import { getCurrentSeason, getCurrentSeasonData, getLastCalculatedRound, getSortedRounds, getFullyCalculatedRounds } from "@/lib/season";
+import { getCurrentSeason, getCurrentSeasonData, getSortedRounds, getFullyCalculatedRounds } from "@/lib/season";
 import { cn } from "@/lib/utils";
 
 function sumMap(map?: Record<number, number>): number {
@@ -46,18 +49,13 @@ export default function LeaderboardPage() {
         loadLeaderboard();
         checkPreSeasonPointsCalculated();
         loadRoundNames();
-        loadLastCalculatedRound();
-        loadCalculatedRounds();
+        loadCalculatedRoundMeta();
     }, []);
 
-    const loadCalculatedRounds = async () => {
+    const loadCalculatedRoundMeta = async () => {
         const rounds = await getFullyCalculatedRounds();
         setCalculatedRounds(new Set(rounds));
-    };
-
-    const loadLastCalculatedRound = async () => {
-        const round = await getLastCalculatedRound();
-        setLastCalculatedRound(round);
+        setLastCalculatedRound(rounds.length > 0 ? rounds[rounds.length - 1] : null);
     };
 
     const loadRoundNames = async () => {
@@ -150,15 +148,41 @@ export default function LeaderboardPage() {
         ? roundNames[lastCalculatedRound] || `מחזור ${lastCalculatedRound}`
         : 'מחזור אחרון';
 
-    const roundsNewestFirst = [...sortedRoundNumbers].reverse();
+    const calculatedRoundsNewestFirst = sortedRoundNumbers
+        .filter((round) => calculatedRounds.has(round))
+        .reverse();
 
     if (loading) return <LoadingScreen label="טוען טבלת מיקומים..." />;
 
     if (error) {
         return (
             <PageShell wide>
-                <div className="status-banner status-closed text-sm">{error}</div>
-                <Button onClick={() => window.location.reload()}>נסה שוב</Button>
+                <PageHeader title="טבלת מיקומים" subtitle={`עונה ${currentSeason}`} />
+                <EmptyState
+                    icon={AlertCircle}
+                    title="לא ניתן לטעון את הדף"
+                    description={error}
+                    action={
+                        <Button onClick={() => window.location.reload()}>נסה שוב</Button>
+                    }
+                />
+            </PageShell>
+        );
+    }
+
+    if (leaderboard.length === 0) {
+        return (
+            <PageShell wide>
+                <PageHeader title="טבלת מיקומים" subtitle={`עונה ${currentSeason}`} />
+                <EmptyState
+                    icon={Trophy}
+                    title="אין נתונים בטבלה"
+                    description={
+                        sortedRoundNumbers.length === 0
+                            ? "עדיין לא נוצרו מחזורים בעונה. לאחר שמשתמשים יזינו הימורים ויוזנו תוצאות, הדירוג יופיע כאן."
+                            : "עדיין אין משתמשים עם נקודות. הזינו הימורים וחכו לתוצאות כדי לראות את הדירוג."
+                    }
+                />
             </PageShell>
         );
     }
@@ -309,7 +333,19 @@ export default function LeaderboardPage() {
                     </CardContent>
                 </Card>
 
-                {leaderboard.length > 0 && sortedRoundNumbers.length > 0 && (
+                {calculatedRoundsNewestFirst.length === 0 && (
+                    <EmptyState
+                        icon={Calendar}
+                        title="אין מחזורים לפירוט נקודות"
+                        description={
+                            sortedRoundNumbers.length === 0
+                                ? "כשייווצרו מחזורים ויוזנו תוצאות, תוכל לראות כאן פירוט נקודות לפי מחזור."
+                                : "עדיין לא חושבו נקודות לאף מחזור. לאחר הזנת תוצאות, הפירוט יופיע כאן."
+                        }
+                    />
+                )}
+
+                {calculatedRoundsNewestFirst.length > 0 && (
                     <Card className="overflow-hidden">
                         <CardContent className="space-y-0 p-3 sm:p-4">
                             <button
@@ -326,7 +362,7 @@ export default function LeaderboardPage() {
                                     <div>
                                         <p className="text-sm font-semibold">נקודות לפי מחזור</p>
                                         <p className="text-xs text-muted-foreground">
-                                            {leaderboard.length} שחקנים · {sortedRoundNumbers.length} מחזורים
+                                            {leaderboard.length} שחקנים · {calculatedRoundsNewestFirst.length} מחזורים
                                         </p>
                                     </div>
                                 </div>
@@ -345,7 +381,7 @@ export default function LeaderboardPage() {
                                                 <tr>
                                                     <th className="sticky-player-col px-3 text-right">שחקן</th>
                                                     <th className="sticky-total-col">סה"כ</th>
-                                                    {roundsNewestFirst.map((round) => {
+                                                    {calculatedRoundsNewestFirst.map((round) => {
                                                         const name = roundNames[round] || `מחזור ${round}`;
                                                         return (
                                                             <th
@@ -381,27 +417,20 @@ export default function LeaderboardPage() {
                                                         <td className="sticky-total-col font-bold text-primary">
                                                             {entry.totalPoints || 0}
                                                         </td>
-                                                        {roundsNewestFirst.map((round) => {
+                                                        {calculatedRoundsNewestFirst.map((round) => {
                                                             const name = roundNames[round] || `מחזור ${round}`;
-                                                            const resultsEntered = calculatedRounds.has(round);
                                                             const pts = entry.roundPoints?.[round] ?? 0;
-                                                            const display = resultsEntered ? String(pts) : '—';
                                                             return (
                                                                 <td
                                                                     key={round}
                                                                     className={cn(
                                                                         "round-col",
-                                                                        !resultsEntered && "round-col-pending",
-                                                                        resultsEntered && pts > 0 && "round-col-has-points",
-                                                                        resultsEntered && pts === 0 && "round-col-zero"
+                                                                        pts > 0 && "round-col-has-points",
+                                                                        pts === 0 && "round-col-zero"
                                                                     )}
-                                                                    title={
-                                                                        resultsEntered
-                                                                            ? `${name}: ${pts} נקודות`
-                                                                            : `${name}: ממתין לתוצאות`
-                                                                    }
+                                                                    title={`${name}: ${pts} נקודות`}
                                                                 >
-                                                                    {display}
+                                                                    {pts}
                                                                 </td>
                                                             );
                                                         })}

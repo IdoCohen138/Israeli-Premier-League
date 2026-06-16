@@ -223,9 +223,10 @@ export async function getSortedRounds(seasonPath?: string): Promise<RoundSummary
   return getCached(cacheKey, CACHE_TTL.rounds, async () => {
     const roundsSnapshot = await getDocs(collection(db, path, 'rounds'));
     const rounds = roundsSnapshot.docs.map((roundDoc) => ({
-      number: parseInt(roundDoc.id),
+      number: parseInt(roundDoc.id, 10),
       startTime: roundDoc.data().startTime || '',
       name: roundDoc.data().name,
+      fullyCalculated: roundDoc.data().fullyCalculated === true,
     }));
     return sortRoundsByStartTime(rounds);
   });
@@ -248,7 +249,7 @@ export async function getSortedMatchesForRound(seasonPath: string, roundNumber: 
   });
 }
 
-function resolveCurrentRound(rounds: RoundSummary[]): number | null {
+export function resolveCurrentRound(rounds: RoundSummary[]): number | null {
   if (rounds.length === 0) return null;
 
   const now = getTrustedNow();
@@ -334,16 +335,46 @@ export const getLastCalculatedRound = async (): Promise<number | null> => {
 /** Round numbers where all active matches have results and points calculated. */
 export async function getFullyCalculatedRounds(seasonId?: string): Promise<number[]> {
   const path = seasonId ? `season/${seasonId}` : getSeasonPath();
-  const sortedRounds = await getSortedRounds(path);
-  const calculated: number[] = [];
+  const cacheKey = `fullyCalculated:${path}`;
 
-  for (const round of sortedRounds) {
-    if (await isRoundFullyCalculated(path, round.number)) {
-      calculated.push(round.number);
+  return getCached(cacheKey, CACHE_TTL.rounds, async () => {
+    const roundsSnapshot = await getDocs(collection(db, path, 'rounds'));
+    const sortedRounds = sortRoundsByStartTime(
+      roundsSnapshot.docs.map((roundDoc) => ({
+        number: parseInt(roundDoc.id, 10),
+        startTime: roundDoc.data().startTime || '',
+        name: roundDoc.data().name,
+        fullyCalculated: roundDoc.data().fullyCalculated === true,
+      }))
+    );
+
+    const calculated = new Set<number>();
+    const legacyCheck: number[] = [];
+
+    for (const round of sortedRounds) {
+      if (round.fullyCalculated) {
+        calculated.add(round.number);
+      } else {
+        legacyCheck.push(round.number);
+      }
     }
-  }
 
-  return calculated;
+    if (legacyCheck.length > 0) {
+      const legacyResults = await Promise.all(
+        legacyCheck.map(async (roundNumber) => ({
+          roundNumber,
+          ok: await isRoundFullyCalculated(path, roundNumber),
+        }))
+      );
+      for (const { roundNumber, ok } of legacyResults) {
+        if (ok) calculated.add(roundNumber);
+      }
+    }
+
+    return sortedRounds
+      .filter((round) => calculated.has(round.number))
+      .map((round) => round.number);
+  });
 }
 
 export async function getActiveBettingRounds(
@@ -351,22 +382,19 @@ export async function getActiveBettingRounds(
   userId?: string | null
 ): Promise<ActiveRoundBetting[]> {
   const path = seasonId ? `season/${seasonId}` : getSeasonPath();
-  const sortedRounds = await getSortedRounds(path);
+  const roundsSnapshot = await getDocs(collection(db, path, 'rounds'));
 
-  const allRounds = await Promise.all(
-    sortedRounds.map(async (summary) => {
-      const roundDoc = await getDoc(doc(db, path, 'rounds', String(summary.number)));
-      const data = roundDoc.data();
-      return summaryToActiveRound(
-        {
-          number: summary.number,
-          startTime: data?.startTime || summary.startTime || '',
-          name: data?.name || summary.name,
-        },
-        data?.bettingExtensions
-      );
-    })
-  );
+  const allRounds = roundsSnapshot.docs.map((roundDoc) => {
+    const data = roundDoc.data();
+    return summaryToActiveRound(
+      {
+        number: parseInt(roundDoc.id, 10),
+        startTime: data.startTime || '',
+        name: data.name,
+      },
+      data.bettingExtensions as Record<string, string> | undefined
+    );
+  });
 
   return getOpenRoundsForUser(allRounds, userId);
 }

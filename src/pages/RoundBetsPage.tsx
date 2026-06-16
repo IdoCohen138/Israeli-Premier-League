@@ -2,14 +2,14 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { Team } from "@/types";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
     getSeasonPath,
     getCurrentSeason,
-    getPrimaryRound,
+    resolveCurrentRound,
 } from "@/lib/season";
 import type { RoundSummary } from "@/lib/sorting";
 import { ensureServerTimeSynced } from "@/lib/serverTime";
@@ -24,7 +24,12 @@ import RoundBettingPanel from "@/components/RoundBettingPanel";
 import PageShell from "@/components/layout/PageShell";
 import PageHeader from "@/components/layout/PageHeader";
 import LoadingScreen from "@/components/layout/LoadingScreen";
+import EmptyState from "@/components/layout/EmptyState";
 import { cn } from "@/lib/utils";
+
+type PageEmptyState =
+    | { kind: "no-rounds" }
+    | { kind: "error"; message: string };
 
 export default function RoundBetsPage() {
     const { user } = useAuth();
@@ -33,6 +38,7 @@ export default function RoundBetsPage() {
     const [teams, setTeams] = useState<Team[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [emptyState, setEmptyState] = useState<PageEmptyState | null>(null);
     const [currentSeason, setCurrentSeason] = useState<string>('');
     const [sortedRounds, setSortedRounds] = useState<RoundSummary[]>([]);
     const initialNavDoneRef = useRef(false);
@@ -73,6 +79,7 @@ export default function RoundBetsPage() {
         const init = async () => {
             setLoading(true);
             setError(null);
+            setEmptyState(null);
             initialNavDoneRef.current = false;
             try {
                 if (user) {
@@ -93,12 +100,13 @@ export default function RoundBetsPage() {
                 setSortedRounds(rounds);
 
                 if (rounds.length === 0) {
-                    setError('לא נמצאו מחזורים');
+                    setEmptyState({ kind: "no-rounds" });
+                    setError(null);
                     setLoading(false);
                     return;
                 }
 
-                setError(null);
+                setEmptyState(null);
                 const units = buildRoundNavigationUnits(rounds);
 
                 if (!initialNavDoneRef.current) {
@@ -109,7 +117,8 @@ export default function RoundBetsPage() {
                             : null;
 
                     const resolveDefault = async () => {
-                        const roundNum = defaultRound ?? (await getPrimaryRound(undefined, user?.uid));
+                        const roundNum =
+                            defaultRound ?? resolveCurrentRound(rounds);
                         if (cancelled) return;
                         if (roundNum) {
                             setCurrentUnitIndex(findNavigationUnitIndex(units, roundNum));
@@ -135,7 +144,10 @@ export default function RoundBetsPage() {
             (subError) => {
                 console.error('Error subscribing to rounds:', subError);
                 if (!cancelled) {
-                    setError('שגיאה בטעינת המחזור');
+                    setEmptyState({
+                        kind: "error",
+                        message: "שגיאה בטעינת המחזורים. נסה לרענן את הדף.",
+                    });
                     setLoading(false);
                 }
             }
@@ -186,11 +198,47 @@ export default function RoundBetsPage() {
         return <LoadingScreen label="טוען הימורי מחזור..." />;
     }
 
+    if (emptyState?.kind === "no-rounds") {
+        return (
+            <PageShell wide>
+                <PageHeader title="הימורי מחזור" subtitle={`עונה ${currentSeason}`} />
+                <EmptyState
+                    icon={Calendar}
+                    title="אין מחזורים בעונה"
+                    description="עדיין לא נוצרו מחזורים לעונה הנוכחית. כשהמנהל יפרסם מחזורים, תוכל להזין כאן את ההימורים שלך."
+                />
+            </PageShell>
+        );
+    }
+
+    if (emptyState?.kind === "error") {
+        return (
+            <PageShell wide>
+                <PageHeader title="הימורי מחזור" subtitle={`עונה ${currentSeason}`} />
+                <EmptyState
+                    icon={AlertCircle}
+                    title="לא ניתן לטעון את הדף"
+                    description={emptyState.message}
+                    action={
+                        <Button onClick={() => window.location.reload()}>נסה שוב</Button>
+                    }
+                />
+            </PageShell>
+        );
+    }
+
     if (error) {
         return (
             <PageShell wide>
-                <div className="status-banner status-closed text-sm">{error}</div>
-                <Button onClick={() => window.location.reload()}>נסה שוב</Button>
+                <PageHeader title="הימורי מחזור" subtitle={`עונה ${currentSeason}`} />
+                <EmptyState
+                    icon={AlertCircle}
+                    title="שגיאה"
+                    description={error}
+                    action={
+                        <Button onClick={() => window.location.reload()}>נסה שוב</Button>
+                    }
+                />
             </PageShell>
         );
     }
