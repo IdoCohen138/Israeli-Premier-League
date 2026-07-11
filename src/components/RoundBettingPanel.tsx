@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import { Clock, ListX } from "lucide-react";
+import { Check, Clock, ListX } from "lucide-react";
 import { Match, Round, Bet, Team } from "@/types";
 import { collection, doc, getDocs, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -19,6 +19,7 @@ import { formatIsraelDateTime } from "@/lib/israelTime";
 import TeamLogo from "@/components/TeamLogo";
 import StatusBanner from "@/components/layout/StatusBanner";
 import EmptyState from "@/components/layout/EmptyState";
+import { cn } from "@/lib/utils";
 
 interface RoundBettingPanelProps {
     roundNumber: number;
@@ -40,6 +41,52 @@ export default function RoundBettingPanel({
     const [timeRemaining, setTimeRemaining] = useState('');
     const [hasExtension, setHasExtension] = useState(false);
     const [extensionUntil, setExtensionUntil] = useState('');
+    const [pendingMatchIds, setPendingMatchIds] = useState<Set<string>>(() => new Set());
+    const saveGenerationRef = useRef<Map<string, number>>(new Map());
+
+    const addPendingMatch = (matchId: string) => {
+        setPendingMatchIds((prev) => {
+            const next = new Set(prev);
+            next.add(matchId);
+            return next;
+        });
+    };
+
+    const removePendingMatch = (matchId: string) => {
+        setPendingMatchIds((prev) => {
+            if (!prev.has(matchId)) return prev;
+            const next = new Set(prev);
+            next.delete(matchId);
+            return next;
+        });
+    };
+
+    const waitForBetConfirmation = async (
+        matchId: string,
+        homeScore: number,
+        awayScore: number
+    ): Promise<boolean> => {
+        if (!user) return false;
+
+        const maxAttempts = 12;
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            const confirmedBets = await getPlayerRoundBets(user.uid, roundNumber);
+            const confirmedBet = confirmedBets?.find((bet) => bet.matchId === matchId);
+
+            if (
+                confirmedBet &&
+                confirmedBet.homeScore === homeScore &&
+                confirmedBet.awayScore === awayScore
+            ) {
+                setBets(confirmedBets ?? []);
+                return true;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+
+        return false;
+    };
 
     useEffect(() => {
         if (!user) return;
@@ -197,6 +244,10 @@ export default function RoundBettingPanel({
             return;
         }
 
+        addPendingMatch(matchId);
+        const generation = (saveGenerationRef.current.get(matchId) ?? 0) + 1;
+        saveGenerationRef.current.set(matchId, generation);
+
         try {
             const newBet: Bet = {
                 userId: user.uid,
@@ -211,26 +262,29 @@ export default function RoundBettingPanel({
 
             await saveRoundBets(user.uid, roundNumber, updatedBets, user.displayName || user.email);
 
-            setBets(updatedBets);
-            setError(null);
+            const confirmed = await waitForBetConfirmation(matchId, homeScore, awayScore);
+            if (!confirmed) {
+                const fallbackBets = await getPlayerRoundBets(user.uid, roundNumber);
+                if (fallbackBets) {
+                    setBets(fallbackBets);
+                } else {
+                    setBets(updatedBets);
+                }
+            }
 
-            setTimeout(() => {
-                getPlayerRoundBets(user.uid, roundNumber).then((newBets) => {
-                    if (newBets) {
-                        setBets(newBets);
-                    } else {
-                        setBets([]);
-                    }
-                });
-            }, 2000);
+            setError(null);
         } catch (saveError) {
             if (saveError instanceof Error && saveError.message === BETTING_CLOSED_ERROR) {
                 setError('תקופת ההימורים למחזור זה הסתיימה. לא ניתן לשנות הימורים יותר.');
                 setIsBettingAllowed(false);
-                return;
+            } else {
+                console.error('Error saving bet:', saveError);
+                setError('שגיאה בשמירת ההימור. אנא נסה שוב.');
             }
-            console.error('Error saving bet:', saveError);
-            setError('שגיאה בשמירת ההימור. אנא נסה שוב.');
+        } finally {
+            if (saveGenerationRef.current.get(matchId) === generation) {
+                removePendingMatch(matchId);
+            }
         }
     };
 
@@ -308,90 +362,117 @@ export default function RoundBettingPanel({
                             description="למחזור זה עדיין לא שויכו משחקים. כשהמנהל יוסיף משחקים, תוכל להזין הימורים כאן."
                         />
                     ) : (
-                    currentRound.matchesDetails?.map((match) => (
-                        <Card key={match.uid}>
-                            <CardContent className="p-3 sm:p-4">
-                                <div className="space-y-3">
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
-                                            <TeamLogo teamId={match.homeTeamId} size="md" />
-                                            <h3 className="text-xs font-semibold leading-tight sm:text-sm">
+                    currentRound.matchesDetails?.map((match) => {
+                        const savedBet = getBetForMatch(match.uid);
+                        const isPending = pendingMatchIds.has(match.uid);
+                        const isSaved = Boolean(savedBet) && !isPending;
+
+                        return (
+                            <Card
+                                key={match.uid}
+                                className={cn(
+                                    'match-bet-card',
+                                    isPending && 'match-bet-card--pending'
+                                )}
+                            >
+                                <CardContent className="match-bet-card-content">
+                                    <div className="match-bet-grid">
+                                        <div className="match-bet-side">
+                                            <TeamLogo teamId={match.homeTeamId} size="sm" />
+                                            <span className="match-bet-team-name">
                                                 {getTeamName(match.homeTeamId)}
-                                            </h3>
+                                            </span>
                                         </div>
-                                        <span className="text-[10px] font-medium text-muted-foreground">נגד</span>
-                                        <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
-                                            <TeamLogo teamId={match.awayTeamId} size="md" />
-                                            <h3 className="text-xs font-semibold leading-tight sm:text-sm">
+
+                                        <div className="match-bet-scores">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="20"
+                                                data-match={`${roundNumber}-${match.uid}-home`}
+                                                className="bet-input bet-input--match"
+                                                placeholder="?"
+                                                defaultValue={savedBet?.homeScore ?? ''}
+                                                disabled={!isBettingAllowed || isPending}
+                                                aria-label={`תוצאה בית ${getTeamName(match.homeTeamId)}`}
+                                                onChange={(e) => {
+                                                    const homeValue = e.target.value;
+                                                    const awayInput = document.querySelector(
+                                                        `input[data-match='${roundNumber}-${match.uid}-away']`
+                                                    ) as HTMLInputElement;
+                                                    const awayValue = awayInput?.value;
+                                                    if (
+                                                        homeValue !== '' &&
+                                                        awayValue !== '' &&
+                                                        !isNaN(Number(homeValue)) &&
+                                                        !isNaN(Number(awayValue))
+                                                    ) {
+                                                        handleBet(
+                                                            match.uid,
+                                                            Number(homeValue),
+                                                            Number(awayValue)
+                                                        );
+                                                    }
+                                                }}
+                                            />
+                                            <span
+                                                className="match-bet-colon"
+                                                aria-hidden={isSaved}
+                                                aria-label={isSaved ? 'הימור נשמר' : undefined}
+                                            >
+                                                {isSaved ? (
+                                                    <Check
+                                                        size={12}
+                                                        strokeWidth={3}
+                                                        className="match-bet-saved-icon"
+                                                    />
+                                                ) : (
+                                                    ':'
+                                                )}
+                                            </span>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="20"
+                                                data-match={`${roundNumber}-${match.uid}-away`}
+                                                className="bet-input bet-input--match"
+                                                placeholder="?"
+                                                defaultValue={savedBet?.awayScore ?? ''}
+                                                disabled={!isBettingAllowed || isPending}
+                                                aria-label={`תוצאה חוץ ${getTeamName(match.awayTeamId)}`}
+                                                onChange={(e) => {
+                                                    const awayValue = e.target.value;
+                                                    const homeInput = document.querySelector(
+                                                        `input[data-match='${roundNumber}-${match.uid}-home']`
+                                                    ) as HTMLInputElement;
+                                                    const homeValue = homeInput?.value;
+                                                    if (
+                                                        homeValue !== '' &&
+                                                        awayValue !== '' &&
+                                                        !isNaN(Number(homeValue)) &&
+                                                        !isNaN(Number(awayValue))
+                                                    ) {
+                                                        handleBet(
+                                                            match.uid,
+                                                            Number(homeValue),
+                                                            Number(awayValue)
+                                                        );
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div className="match-bet-side">
+                                            <TeamLogo teamId={match.awayTeamId} size="sm" />
+                                            <span className="match-bet-team-name">
                                                 {getTeamName(match.awayTeamId)}
-                                            </h3>
+                                            </span>
                                         </div>
                                     </div>
-
-                                    {getBetForMatch(match.uid) && (
-                                        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 py-2 text-center text-sm font-semibold text-emerald-400">
-                                            ההימור שלך: {getBetForMatch(match.uid)?.homeScore} -{' '}
-                                            {getBetForMatch(match.uid)?.awayScore}
-                                        </div>
-                                    )}
-
-                                    <div className="flex items-center justify-center gap-3">
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max="20"
-                                            data-match={`${roundNumber}-${match.uid}-home`}
-                                            className="bet-input"
-                                            placeholder="?"
-                                            defaultValue={getBetForMatch(match.uid)?.homeScore ?? ''}
-                                            disabled={!isBettingAllowed}
-                                            onChange={(e) => {
-                                                const homeValue = e.target.value;
-                                                const awayInput = document.querySelector(
-                                                    `input[data-match='${roundNumber}-${match.uid}-away']`
-                                                ) as HTMLInputElement;
-                                                const awayValue = awayInput?.value;
-                                                if (
-                                                    homeValue !== '' &&
-                                                    awayValue !== '' &&
-                                                    !isNaN(Number(homeValue)) &&
-                                                    !isNaN(Number(awayValue))
-                                                ) {
-                                                    handleBet(match.uid, Number(homeValue), Number(awayValue));
-                                                }
-                                            }}
-                                        />
-                                        <span className="text-lg font-bold text-muted-foreground">:</span>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max="20"
-                                            data-match={`${roundNumber}-${match.uid}-away`}
-                                            className="bet-input"
-                                            placeholder="?"
-                                            defaultValue={getBetForMatch(match.uid)?.awayScore ?? ''}
-                                            disabled={!isBettingAllowed}
-                                            onChange={(e) => {
-                                                const awayValue = e.target.value;
-                                                const homeInput = document.querySelector(
-                                                    `input[data-match='${roundNumber}-${match.uid}-home']`
-                                                ) as HTMLInputElement;
-                                                const homeValue = homeInput?.value;
-                                                if (
-                                                    homeValue !== '' &&
-                                                    awayValue !== '' &&
-                                                    !isNaN(Number(homeValue)) &&
-                                                    !isNaN(Number(awayValue))
-                                                ) {
-                                                    handleBet(match.uid, Number(homeValue), Number(awayValue));
-                                                }
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    ))
+                                </CardContent>
+                            </Card>
+                        );
+                    })
                     )}
                 </div>
             )}

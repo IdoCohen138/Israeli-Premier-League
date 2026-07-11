@@ -1,14 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getCurrentSeason, getSeasonPath, getCurrentSeasonData, getSortedRounds, getDefaultAllUsersBetsRound } from '@/lib/season';
-import { sortMatchesByStartTime } from '@/lib/sorting';
+import { sortMatchesByStartTime, type RoundSummary } from '@/lib/sorting';
 import { ensureServerTimeSynced, isDeadlinePassed } from '@/lib/serverTime';
 import { formatIsraelDateTime, parseIsraelDateTime } from '@/lib/israelTime';
+import {
+  buildRoundNavigationUnits,
+  findNavigationUnitIndex,
+} from '@/lib/activeBettingRounds';
 import { useAuth } from '@/contexts/AuthContext';
 import { getPlayerRoundBets, getPlayerPreSeasonBets } from '@/lib/playerBets';
 import PageShell from '@/components/layout/PageShell';
 import PageHeader from '@/components/layout/PageHeader';
+import RoundNavScrollBar from '@/components/RoundNavScrollBar';
 import StatusBanner from '@/components/layout/StatusBanner';
 import LoadingScreen from '@/components/layout/LoadingScreen';
 import EmptyState from '@/components/layout/EmptyState';
@@ -49,8 +54,9 @@ interface MatchInfo {
 
 const AllUsersBetsPage: React.FC = () => {
   const [users, setUsers] = useState<UserInfo[]>([]);
-  const [rounds, setRounds] = useState<{ number: number; startTime: string; name?: string }[]>([]);
-  const [selectedRound, setSelectedRound] = useState<number | null>(null);
+  const [rounds, setRounds] = useState<RoundSummary[]>([]);
+  const [currentUnitIndex, setCurrentUnitIndex] = useState(0);
+  const [activeRoundInUnit, setActiveRoundInUnit] = useState<number | null>(null);
   const [betsByUser, setBetsByUser] = useState<Record<string, Bet[]>>({});
   const [matchesMap, setMatchesMap] = useState<Record<string, MatchInfo>>({});
   const [sortedMatchIds, setSortedMatchIds] = useState<string[]>([]);
@@ -65,6 +71,43 @@ const AllUsersBetsPage: React.FC = () => {
   const [seasonStartDate, setSeasonStartDate] = useState<Date | null>(null);
   const [seasonResults, setSeasonResults] = useState<any>(null);
   const { user } = useAuth();
+
+  const navUnits = useMemo(
+    () => buildRoundNavigationUnits(rounds),
+    [rounds]
+  );
+
+  const currentUnit = navUnits[currentUnitIndex] ?? null;
+
+  const selectedRound = currentUnit
+    ? currentUnit.isGrouped
+      ? activeRoundInUnit ?? currentUnit.roundNumbers[0]
+      : currentUnit.roundNumbers[0]
+    : null;
+
+  useEffect(() => {
+    const unit = navUnits[currentUnitIndex];
+    if (!unit) return;
+    setActiveRoundInUnit((prev) =>
+      prev && unit.roundNumbers.includes(prev) ? prev : unit.roundNumbers[0]
+    );
+  }, [currentUnitIndex, navUnits]);
+
+  const getRoundLabel = (roundNumber: number) => {
+    const meta = rounds.find((round) => round.number === roundNumber);
+    return meta?.name || `מחזור ${roundNumber}`;
+  };
+
+  const handleSelectUnit = (unitIndex: number) => {
+    const unit = navUnits[unitIndex];
+    if (!unit) return;
+    setCurrentUnitIndex(unitIndex);
+    setActiveRoundInUnit(unit.roundNumbers[0]);
+  };
+
+  const handleSelectRoundInGroup = (roundNumber: number) => {
+    setActiveRoundInUnit(roundNumber);
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -86,7 +129,11 @@ const AllUsersBetsPage: React.FC = () => {
       setRounds(roundsList);
 
       const defaultRound = await getDefaultAllUsersBetsRound(seasonId);
-      setSelectedRound(defaultRound);
+      if (defaultRound) {
+        const units = buildRoundNavigationUnits(roundsList);
+        setCurrentUnitIndex(findNavigationUnitIndex(units, defaultRound));
+        setActiveRoundInUnit(defaultRound);
+      }
       setInitialLoading(false);
     };
     fetchData();
@@ -413,7 +460,7 @@ const AllUsersBetsPage: React.FC = () => {
   }
 
   return (
-    <PageShell>
+    <PageShell wide>
       <PageHeader title="הימורי כל המשתמשים" />
 
       {rounds.length === 0 ? (
@@ -441,15 +488,19 @@ const AllUsersBetsPage: React.FC = () => {
               />
             ) : (
             <>
-            <div className="flex items-center gap-2">
-              <label htmlFor="round-select" className="shrink-0 text-sm font-medium text-muted-foreground">מחזור:</label>
-              <select id="round-select" className="app-select flex-1" value={selectedRound ?? ''}
-                onChange={e => setSelectedRound(Number(e.target.value))}>
-                {rounds.map(r => (
-                  <option key={r.number} value={r.number}>{r.name || `מחזור ${r.number}`}</option>
-                ))}
-              </select>
-            </div>
+            {selectedRound && (
+                <RoundNavScrollBar
+                    units={navUnits}
+                    activeUnitIndex={currentUnitIndex}
+                    activeRoundNumber={selectedRound}
+                    rounds={rounds}
+                    userId={user?.uid}
+                    getRoundLabel={getRoundLabel}
+                    onSelectUnit={handleSelectUnit}
+                    onSelectRoundInGroup={handleSelectRoundInGroup}
+                    groupedHint="מחזורים עם סגירה קרובה — בחר מחזור לצפייה"
+                />
+            )}
 
             {roundDataLoading ? (
               <p className="py-6 text-center text-sm text-muted-foreground">טוען נתוני מחזור...</p>

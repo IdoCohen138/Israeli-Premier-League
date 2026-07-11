@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import { Calendar, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
+import { Calendar, AlertCircle } from "lucide-react";
 import { Team } from "@/types";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -16,16 +15,15 @@ import { ensureServerTimeSynced } from "@/lib/serverTime";
 import {
     buildRoundNavigationUnits,
     findNavigationUnitIndex,
-    formatNavigationUnitLabel,
     getOpenRoundsForUser,
 } from "@/lib/activeBettingRounds";
 import { subscribeToSeasonRounds } from "@/lib/roundSubscriptions";
 import RoundBettingPanel from "@/components/RoundBettingPanel";
+import RoundNavScrollBar from "@/components/RoundNavScrollBar";
 import PageShell from "@/components/layout/PageShell";
 import PageHeader from "@/components/layout/PageHeader";
 import LoadingScreen from "@/components/layout/LoadingScreen";
 import EmptyState from "@/components/layout/EmptyState";
-import { cn } from "@/lib/utils";
 
 type PageEmptyState =
     | { kind: "no-rounds" }
@@ -173,26 +171,21 @@ export default function RoundBetsPage() {
         }
     };
 
-    const handlePrevUnit = () => {
-        if (currentUnitIndex < navUnits.length - 1) {
-            setCurrentUnitIndex(currentUnitIndex + 1);
-        }
+    const handleSelectUnit = (unitIndex: number) => {
+        const unit = navUnits[unitIndex];
+        if (!unit) return;
+        setCurrentUnitIndex(unitIndex);
+        setActiveRoundInUnit(unit.roundNumbers[0]);
     };
 
-    const handleNextUnit = () => {
-        if (currentUnitIndex > 0) {
-            setCurrentUnitIndex(currentUnitIndex - 1);
-        }
+    const handleSelectRoundInGroup = (roundNumber: number) => {
+        setActiveRoundInUnit(roundNumber);
     };
 
     const getRoundLabel = (roundNumber: number) => {
         const meta = sortedRounds.find((round) => round.number === roundNumber);
         return meta?.name || `מחזור ${roundNumber}`;
     };
-
-    const unitTitle = currentUnit
-        ? formatNavigationUnitLabel(currentUnit, getRoundLabel)
-        : '—';
 
     if (loading) {
         return <LoadingScreen label="טוען הימורי מחזור..." />;
@@ -247,68 +240,17 @@ export default function RoundBetsPage() {
         <PageShell wide>
             <PageHeader title="הימורי מחזור" subtitle={`עונה ${currentSeason}`} />
 
-            <Card>
-                <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                            <CardTitle className="flex items-start gap-2 text-base leading-snug">
-                                <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                <span className="break-words">{unitTitle}</span>
-                            </CardTitle>
-                            {currentUnit?.isGrouped && (
-                                <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-                                    מחזורים עם סגירה קרובה — כל הימור נשמר בנפרד
-                                </p>
-                            )}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                            <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={handleNextUnit}
-                                disabled={currentUnitIndex <= 0}
-                                className="h-8 w-8"
-                                aria-label="מחזור קודם בזמן"
-                            >
-                                <ChevronRight size={16} />
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={handlePrevUnit}
-                                disabled={navUnits.length === 0 || currentUnitIndex >= navUnits.length - 1}
-                                className="h-8 w-8"
-                                aria-label="מחזור הבא בזמן"
-                            >
-                                <ChevronLeft size={16} />
-                            </Button>
-                        </div>
-                    </div>
-                </CardHeader>
-            </Card>
-
-            {currentUnit?.isGrouped && (
-                <div className="round-bets-pair-switcher" role="tablist" aria-label="בחירת מחזור ביחידה">
-                    {currentUnit.roundNumbers.map((roundNumber) => {
-                        const isActive = displayedRoundNumber === roundNumber;
-                        const roundLabel = getRoundLabel(roundNumber);
-                        return (
-                            <button
-                                key={roundNumber}
-                                type="button"
-                                role="tab"
-                                aria-selected={isActive}
-                                className={cn(
-                                    "round-bets-pair-tab",
-                                    isActive && "round-bets-pair-tab--active"
-                                )}
-                                onClick={() => setActiveRoundInUnit(roundNumber)}
-                            >
-                                <span className="round-bets-pair-tab-label">{roundLabel}</span>
-                            </button>
-                        );
-                    })}
-                </div>
+            {displayedRoundNumber && navUnits.length > 0 && (
+                <RoundNavScrollBar
+                    units={navUnits}
+                    activeUnitIndex={currentUnitIndex}
+                    activeRoundNumber={displayedRoundNumber}
+                    rounds={sortedRounds}
+                    userId={user?.uid}
+                    getRoundLabel={getRoundLabel}
+                    onSelectUnit={handleSelectUnit}
+                    onSelectRoundInGroup={handleSelectRoundInGroup}
+                />
             )}
 
             {displayedRoundNumber && (

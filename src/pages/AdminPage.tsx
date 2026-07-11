@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
@@ -6,12 +6,19 @@ import { useNavigate } from "react-router-dom";
 import { Plus, Edit, Trash2, Calendar, Clock, Users, Settings, Trophy, Target, X, TrendingDown, UserPlus } from "lucide-react";
 import TeamLogo from "@/components/TeamLogo";
 import AdminMatchRow from "@/components/admin/AdminMatchRow";
+import AdminResultMatchRow from "@/components/admin/AdminResultMatchRow";
+import RoundNavScrollBar from "@/components/RoundNavScrollBar";
 import { Match, Round, Team, User, Player } from "@/types";
 import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc, writeBatch, getDoc, deleteField } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
-import { getCurrentSeason, openNewSeason, getNextSeasonId, formatSeasonDisplay, setActiveSeason, setSeasonOpen, listSeasonIds, sortSeasonIdsDesc } from "@/lib/season";
-import { sortRoundsByStartTimeDesc, sortMatchesByStartTime } from "@/lib/sorting";
+import { getCurrentSeason, openNewSeason, getNextSeasonId, formatSeasonDisplay, setActiveSeason, setSeasonOpen, listSeasonIds, sortSeasonIdsDesc, resolveCurrentRound } from "@/lib/season";
+import { sortRoundsByStartTime, sortRoundsByStartTimeDesc, sortMatchesByStartTime, type RoundSummary } from "@/lib/sorting";
+import {
+    buildRoundNavigationUnits,
+    findNavigationUnitIndex,
+    getOpenRoundsForUser,
+} from "@/lib/activeBettingRounds";
 import { calculateRoundPoints, calculatePreSeasonPoints, deleteRoundPoints, recalculatePlayerPoints, cancelMatch, restoreCancelledMatch, grantUserBettingExtension, revokeUserBettingExtension } from "@/lib/playerBets";
 import { formatIsraelDateTime } from "@/lib/israelTime";
 import { isDeadlinePassed } from "@/lib/serverTime";
@@ -72,6 +79,126 @@ export default function AdminPage() {
     const [extensionDeadline, setExtensionDeadline] = useState<string>('');
     const [isGrantingExtension, setIsGrantingExtension] = useState(false);
 
+    const [currentUnitIndex, setCurrentUnitIndex] = useState(0);
+    const [activeRoundInUnit, setActiveRoundInUnit] = useState<number | null>(null);
+    const adminNavInitRef = useRef(false);
+
+    const navRoundSummaries = useMemo<RoundSummary[]>(
+        () =>
+            sortRoundsByStartTime(
+                rounds.map((round) => ({
+                    number: round.number,
+                    startTime: round.startTime || '',
+                    name: round.name,
+                }))
+            ),
+        [rounds]
+    );
+
+    const navUnits = useMemo(
+        () => buildRoundNavigationUnits(navRoundSummaries),
+        [navRoundSummaries]
+    );
+
+    const currentUnit = navUnits[currentUnitIndex] ?? null;
+
+    const selectedRoundNumber = currentUnit
+        ? currentUnit.isGrouped
+            ? activeRoundInUnit ?? currentUnit.roundNumbers[0]
+            : currentUnit.roundNumbers[0]
+        : null;
+
+    const selectedRound = selectedRoundNumber
+        ? rounds.find((round) => round.number === selectedRoundNumber) ?? null
+        : null;
+
+    useEffect(() => {
+        const unit = navUnits[currentUnitIndex];
+        if (!unit) return;
+        setActiveRoundInUnit((prev) =>
+            prev && unit.roundNumbers.includes(prev) ? prev : unit.roundNumbers[0]
+        );
+    }, [currentUnitIndex, navUnits]);
+
+    useEffect(() => {
+        if (rounds.length === 0 || adminNavInitRef.current) return;
+
+        const units = buildRoundNavigationUnits(navRoundSummaries);
+        const openRounds = getOpenRoundsForUser(
+            rounds.map((round) => ({
+                number: round.number,
+                name: round.name || `מחזור ${round.number}`,
+                startTime: round.startTime || '',
+                bettingExtensions: round.bettingExtensions,
+            })),
+            user?.uid
+        );
+        const defaultRound =
+            openRounds.length > 0
+                ? openRounds[0].number
+                : resolveCurrentRound(navRoundSummaries);
+
+        if (defaultRound) {
+            setCurrentUnitIndex(findNavigationUnitIndex(units, defaultRound));
+            setActiveRoundInUnit(defaultRound);
+        } else {
+            setCurrentUnitIndex(0);
+        }
+        adminNavInitRef.current = true;
+    }, [rounds, navRoundSummaries, user?.uid]);
+
+    const getRoundLabel = (roundNumber: number) => {
+        const meta = rounds.find((round) => round.number === roundNumber);
+        return meta?.name || `מחזור ${roundNumber}`;
+    };
+
+    const clearRoundEditStates = (roundNumber: number) => {
+        if (editingResults !== null && editingResults !== roundNumber) {
+            setEditingResults(null);
+        }
+        if (editingMatches !== null && editingMatches !== roundNumber) {
+            setEditingMatches(null);
+        }
+        if (editingRound !== null && editingRound !== roundNumber) {
+            setEditingRound(null);
+            setRoundEditData({ startTime: '', name: '' });
+        }
+        if (extensionRoundNumber !== null && extensionRoundNumber !== roundNumber) {
+            setExtensionRoundNumber(null);
+            setExtensionTargetUserId('');
+            setExtensionDeadline('');
+        }
+    };
+
+    const handleSelectUnit = (unitIndex: number) => {
+        const unit = navUnits[unitIndex];
+        if (!unit) return;
+        const roundNumber = unit.roundNumbers[0];
+        clearRoundEditStates(roundNumber);
+        setCurrentUnitIndex(unitIndex);
+        setActiveRoundInUnit(roundNumber);
+    };
+
+    const handleSelectRoundInGroup = (roundNumber: number) => {
+        clearRoundEditStates(roundNumber);
+        setActiveRoundInUnit(roundNumber);
+    };
+
+    const renderAdminRoundNav = (groupedHint: string) =>
+        selectedRoundNumber && navUnits.length > 0 ? (
+            <RoundNavScrollBar
+                units={navUnits}
+                activeUnitIndex={currentUnitIndex}
+                activeRoundNumber={selectedRoundNumber}
+                rounds={navRoundSummaries}
+                userId={user?.uid}
+                getRoundLabel={getRoundLabel}
+                onSelectUnit={handleSelectUnit}
+                onSelectRoundInGroup={handleSelectRoundInGroup}
+                groupedHint={groupedHint}
+            />
+        ) : null;
+
     useEffect(() => {
         if (user?.role !== 'admin') {
             navigate('/');
@@ -85,6 +212,7 @@ export default function AdminPage() {
     useEffect(() => {
         if (!config?.activeSeasonId) return;
         setCurrentSeason(config.activeSeasonId);
+        adminNavInitRef.current = false;
         loadData();
     }, [config?.activeSeasonId]);
 
@@ -620,20 +748,91 @@ export default function AdminPage() {
         ));
     };
 
+    const applyLocalMatchCancel = (roundNumber: number, matchId: string, hadSavedResult: boolean) => {
+        setRounds((prev) =>
+            prev.map((round) =>
+                round.number === roundNumber
+                    ? {
+                          ...round,
+                          matchesDetails: round.matchesDetails?.map((match) =>
+                              match.uid === matchId
+                                  ? {
+                                        ...match,
+                                        isCancelled: true,
+                                        ...(hadSavedResult
+                                            ? {
+                                                  actualHomeScore: undefined,
+                                                  actualAwayScore: undefined,
+                                                  pointsCalculated: false,
+                                              }
+                                            : {}),
+                                    }
+                                  : match
+                          ),
+                      }
+                    : round
+            )
+        );
+    };
+
+    const applyLocalMatchRestore = (roundNumber: number, matchId: string) => {
+        setRounds((prev) =>
+            prev.map((round) =>
+                round.number === roundNumber
+                    ? {
+                          ...round,
+                          matchesDetails: round.matchesDetails?.map((match) =>
+                              match.uid === matchId
+                                  ? { ...match, isCancelled: false }
+                                  : match
+                          ),
+                      }
+                    : round
+            )
+        );
+    };
+
     const handleCancelMatch = async (roundNumber: number, matchId: string) => {
-        if (!window.confirm('האם לבטל משחק זה? הנקודות של המחזור יחושבו מחדש לכל המשתמשים.')) return;
+        const round = rounds.find((r) => r.number === roundNumber);
+        const match = round?.matchesDetails?.find((m) => m.uid === matchId);
+        const hadSavedResult = Boolean(match?.pointsCalculated);
+        const isEditingRound = editingResults === roundNumber;
+
+        const confirmMessage = hadSavedResult
+            ? 'האם לבטל משחק זה? התוצאה שנשמרה תימחק והנקודות יחושבו מחדש.'
+            : isEditingRound
+              ? 'האם לסמן משחק זה כמבוטל? התוצאות שאתה מזין כעת במחזור לא יימחקו.'
+              : 'האם לבטל משחק זה?';
+
+        if (!window.confirm(confirmMessage)) return;
         if (isCalculatingPoints) return;
 
         setIsCalculatingPoints(true);
         try {
             const result = await cancelMatch(roundNumber, matchId);
-            await reloadRound(roundNumber);
-            if (result.hasIncompleteMatches) {
-                alert(
-                    'המשחק בוטל. חישוב הנקודות יושלם כאשר לכל המשחקים הפעילים במחזור תהיה תוצאה.'
-                );
+            applyLocalMatchCancel(roundNumber, matchId, hadSavedResult);
+
+            if (isEditingRound) {
+                if (result.hasIncompleteMatches) {
+                    alert(
+                        hadSavedResult
+                            ? 'המשחק בוטל והנקודות שלו הוסרו. חישוב מלא יושלם כשלכל המשחקים הפעילים במחזור תהיה תוצאה.'
+                            : 'המשחק סומן כמבוטל. התוצאות שאתה מזין כעת במחזור לא נמחקו.'
+                    );
+                } else {
+                    alert('המשחק בוטל והנקודות חושבו מחדש בהצלחה!');
+                }
             } else {
-                alert('המשחק בוטל והנקודות חושבו מחדש בהצלחה!');
+                await reloadRound(roundNumber);
+                if (result.hasIncompleteMatches) {
+                    alert(
+                        hadSavedResult
+                            ? 'המשחק בוטל והנקודות שלו הוסרו. חישוב מלא יושלם כשלכל המשחקים הפעילים במחזור תהיה תוצאה.'
+                            : 'המשחק בוטל בהצלחה.'
+                    );
+                } else {
+                    alert('המשחק בוטל והנקודות חושבו מחדש בהצלחה!');
+                }
             }
         } catch (error) {
             console.error('Error cancelling match:', error);
@@ -647,14 +846,24 @@ export default function AdminPage() {
         if (!window.confirm('האם להחזיר משחק זה? לאחר הזנת תוצאה הנקודות יחושבו מחדש.')) return;
         if (isCalculatingPoints) return;
 
+        const isEditingRound = editingResults === roundNumber;
+
         setIsCalculatingPoints(true);
         try {
             const result = await restoreCancelledMatch(roundNumber, matchId);
-            await reloadRound(roundNumber);
-            if (result.hasIncompleteMatches) {
-                alert('המשחק הוחזר. הזן תוצאה ושמור כדי לחשב נקודות.');
+            applyLocalMatchRestore(roundNumber, matchId);
+
+            if (isEditingRound) {
+                if (!result.hasIncompleteMatches) {
+                    alert('המשחק הוחזר והנקודות חושבו מחדש בהצלחה!');
+                }
             } else {
-                alert('המשחק הוחזר והנקודות חושבו מחדש בהצלחה!');
+                await reloadRound(roundNumber);
+                if (result.hasIncompleteMatches) {
+                    alert('המשחק הוחזר. הזן תוצאה ושמור כדי לחשב נקודות.');
+                } else {
+                    alert('המשחק הוחזר והנקודות חושבו מחדש בהצלחה!');
+                }
             }
         } catch (error) {
             console.error('Error restoring match:', error);
@@ -1220,7 +1429,6 @@ export default function AdminPage() {
                                                                         </select>
                                                                     </div>
                                                                 </div>
-                                                                {/* שדה תאריך הוסר */}
                                                             </div>
                                                         ))}
                                                         <Button
@@ -1402,177 +1610,118 @@ export default function AdminPage() {
                                 </CardContent>
                             </Card>
                         ) : (
-                            rounds.map((round) => (
-                                <Card key={round.number}>
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center justify-between">
-                                            <span>{round.name || `מחזור ${round.number}`}</span>
-                                            <div className="flex items-center gap-2">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => handleEditResults(round.number)}
-                                                    className="text-sky-400"
-                                                >
-                                                    הזן תוצאות
-                                                </Button>
-                                                {(round.matchesDetails || []).some(match => match.pointsCalculated) && (
-                                                    <span className="text-green-600 text-sm">
-                                                        ✓ {round.matchesDetails?.filter(match => match.pointsCalculated).length || 0} משחקים חושבו
-                                                    </span>
-                                                )}
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => handleResetRoundResults(round.number)}
-                                                    className="text-orange-600 hover:text-orange-700"
-                                                >
-                                                    אפס תוצאות מחזור
-                                                </Button>
-                                            </div>
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="space-y-3">
-                                            {(round.matchesDetails || []).map((match) => (
-                                                <AdminMatchRow
-                                                    key={match.uid}
-                                                    homeTeamId={match.homeTeamId}
-                                                    awayTeamId={match.awayTeamId}
-                                                    homeName={teams.find(t => t.uid === match.homeTeamId)?.name || match.homeTeam || 'קבוצה לא נבחרה'}
-                                                    awayName={teams.find(t => t.uid === match.awayTeamId)?.name || match.awayTeam || 'קבוצה לא נבחרה'}
-                                                    isCancelled={match.isCancelled}
-                                                >
-                                                    <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                                        <div className="flex flex-1 items-center justify-center gap-2">
-                                                            {match.isCancelled ? (
-                                                                <span className="text-sm font-bold text-red-400">משחק בוטל</span>
-                                                            ) : editingResults === round.number ? (
-                                                                <>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="0"
-                                                                        max="20"
-                                                                        placeholder="0"
-                                                                        className="admin-score-input"
-                                                                        defaultValue={match.actualHomeScore ?? ''}
-                                                                        onChange={(e) => {
-                                                                            const updatedMatches = round.matchesDetails?.map(m =>
-                                                                                m.uid === match.uid
-                                                                                    ? { ...m, actualHomeScore: parseInt(e.target.value) || 0 }
-                                                                                    : m
-                                                                            ) || [];
-                                                                            setRounds(prev => prev.map(r =>
-                                                                                r.number === round.number
-                                                                                    ? { ...r, matchesDetails: updatedMatches }
-                                                                                    : r
-                                                                            ));
-                                                                        }}
-                                                                    />
-                                                                    <span className="text-lg font-semibold text-muted-foreground">-</span>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="0"
-                                                                        max="20"
-                                                                        placeholder="0"
-                                                                        className="admin-score-input"
-                                                                        defaultValue={match.actualAwayScore ?? ''}
-                                                                        onChange={(e) => {
-                                                                            const updatedMatches = round.matchesDetails?.map(m =>
-                                                                                m.uid === match.uid
-                                                                                    ? { ...m, actualAwayScore: parseInt(e.target.value) || 0 }
-                                                                                    : m
-                                                                            ) || [];
-                                                                            setRounds(prev => prev.map(r =>
-                                                                                r.number === round.number
-                                                                                    ? { ...r, matchesDetails: updatedMatches }
-                                                                                    : r
-                                                                            ));
-                                                                        }}
-                                                                    />
-                                                                </>
-                                                            ) : (
-                                                                <div className="text-center">
-                                                                    {(match.actualHomeScore !== undefined && match.actualHomeScore !== null) && (match.actualAwayScore !== undefined && match.actualAwayScore !== null) ? (
-                                                                        <div>
-                                                                            <p className="font-semibold">
-                                                                                {match.actualHomeScore} - {match.actualAwayScore}
-                                                                            </p>
-                                                                            {match.pointsCalculated && (
-                                                                                <p className="text-xs text-green-600">✓ חושבו נקודות</p>
-                                                                            )}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <p className="text-muted-foreground">לא הוזן</p>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex shrink-0 justify-center gap-2">
-                                                            {match.isCancelled ? (
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => handleRestoreMatch(round.number, match.uid)}
-                                                                    disabled={isCalculatingPoints}
-                                                                    className="text-emerald-400 hover:text-emerald-300"
-                                                                >
-                                                                    החזר משחק
-                                                                </Button>
-                                                            ) : (
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => handleCancelMatch(round.number, match.uid)}
-                                                                    disabled={isCalculatingPoints}
-                                                                    className="text-red-400 hover:text-red-300"
-                                                                >
-                                                                    בטל משחק
-                                                                </Button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </AdminMatchRow>
-                                            ))}
-                                            {(round.matchesDetails || []).length === 0 && (
-                                                <div className="text-center py-6 text-muted-foreground">
-                                                    <div className="mb-2">
-                                                        <Settings size={24} className="mx-auto text-muted-foreground" />
-                                                    </div>
-                                                    <p className="font-medium">אין משחקים במחזור זה</p>
-                                                </div>
-                                            )}
-                                            {editingResults === round.number && (
-                                                <div className="flex gap-2 justify-end">
-                                                    {/* 5. כפתור שמירת תוצאות עם חיווי */}
-                                                    <Button
-                                                        size="sm"
-                                                        onClick={() => handleSaveResults(round.number)}
-                                                        disabled={isCalculatingPoints}
-                                                    >
-                                                        {isCalculatingPoints ? (
-                                                            <>
-                                                                <span className="animate-spin inline-block mr-2 w-4 h-4 border-b-2 border-blue-600 rounded-full"></span>
-                                                                מחשב נקודות...
-                                                            </>
-                                                        ) : (
-                                                            'שמור וחשב נקודות'
-                                                        )}
-                                                    </Button>
+                            <div className="admin-round-panel">
+                                {renderAdminRoundNav('מחזורים עם סגירה קרובה — בחר מחזור לתוצאות')}
+
+                                {selectedRound && (
+                                    <Card key={selectedRound.number}>
+                                        <CardHeader>
+                                            <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+                                                <span>{selectedRound.name || `מחזור ${selectedRound.number}`}</span>
+                                                <div className="flex flex-wrap items-center gap-2">
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        onClick={() => setEditingResults(null)}
-                                                        disabled={isCalculatingPoints}
+                                                        onClick={() => handleEditResults(selectedRound.number)}
+                                                        className="text-sky-400"
                                                     >
-                                                        ביטול
+                                                        הזן תוצאות
+                                                    </Button>
+                                                    {(selectedRound.matchesDetails || []).some((match) => match.pointsCalculated) && (
+                                                        <span className="text-sm text-green-600 dark:text-green-400">
+                                                            ✓ {selectedRound.matchesDetails?.filter((match) => match.pointsCalculated).length || 0} משחקים חושבו
+                                                        </span>
+                                                    )}
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleResetRoundResults(selectedRound.number)}
+                                                        className="text-orange-600 hover:text-orange-700"
+                                                    >
+                                                        אפס תוצאות מחזור
                                                     </Button>
                                                 </div>
-                                            )}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            ))
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="space-y-2">
+                                                {(selectedRound.matchesDetails || []).map((match) => (
+                                                    <AdminResultMatchRow
+                                                        key={match.uid}
+                                                        match={match}
+                                                        homeName={teams.find((t) => t.uid === match.homeTeamId)?.name || match.homeTeam || 'קבוצה לא נבחרה'}
+                                                        awayName={teams.find((t) => t.uid === match.awayTeamId)?.name || match.awayTeam || 'קבוצה לא נבחרה'}
+                                                        isEditing={editingResults === selectedRound.number}
+                                                        isCalculatingPoints={isCalculatingPoints}
+                                                        onHomeScoreChange={(value) => {
+                                                            const updatedMatches = selectedRound.matchesDetails?.map((m) =>
+                                                                m.uid === match.uid
+                                                                    ? { ...m, actualHomeScore: value === '' ? undefined : parseInt(value, 10) || 0 }
+                                                                    : m
+                                                            ) || [];
+                                                            setRounds((prev) =>
+                                                                prev.map((r) =>
+                                                                    r.number === selectedRound.number
+                                                                        ? { ...r, matchesDetails: updatedMatches }
+                                                                        : r
+                                                                )
+                                                            );
+                                                        }}
+                                                        onAwayScoreChange={(value) => {
+                                                            const updatedMatches = selectedRound.matchesDetails?.map((m) =>
+                                                                m.uid === match.uid
+                                                                    ? { ...m, actualAwayScore: value === '' ? undefined : parseInt(value, 10) || 0 }
+                                                                    : m
+                                                            ) || [];
+                                                            setRounds((prev) =>
+                                                                prev.map((r) =>
+                                                                    r.number === selectedRound.number
+                                                                        ? { ...r, matchesDetails: updatedMatches }
+                                                                        : r
+                                                                )
+                                                            );
+                                                        }}
+                                                        onCancel={() => handleCancelMatch(selectedRound.number, match.uid)}
+                                                        onRestore={() => handleRestoreMatch(selectedRound.number, match.uid)}
+                                                    />
+                                                ))}
+                                                {(selectedRound.matchesDetails || []).length === 0 && (
+                                                    <div className="py-6 text-center text-muted-foreground">
+                                                        <Settings size={24} className="mx-auto mb-2 text-muted-foreground" />
+                                                        <p className="font-medium">אין משחקים במחזור זה</p>
+                                                    </div>
+                                                )}
+                                                {editingResults === selectedRound.number && (
+                                                    <div className="flex justify-end gap-2 pt-1">
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => handleSaveResults(selectedRound.number)}
+                                                            disabled={isCalculatingPoints}
+                                                        >
+                                                            {isCalculatingPoints ? (
+                                                                <>
+                                                                    <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-b-2 border-blue-600" />
+                                                                    מחשב נקודות...
+                                                                </>
+                                                            ) : (
+                                                                'שמור וחשב נקודות'
+                                                            )}
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => setEditingResults(null)}
+                                                            disabled={isCalculatingPoints}
+                                                        >
+                                                            ביטול
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </div>
                         )}
                     </div>
                 )}

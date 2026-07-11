@@ -77,33 +77,51 @@ function ActiveRoundStatusRow({
     );
 }
 
-interface NavRowProps {
+interface HomeActionCardProps {
     icon: ElementType;
     title: string;
-    subtitle?: string;
     onClick: () => void;
-    accent?: "emerald" | "amber" | "sky" | "violet" | "slate";
+    accent: "emerald" | "amber" | "sky" | "violet" | "slate";
     bettingStatus?: BettingWindowStatus | null;
+    featured?: boolean;
+    children?: React.ReactNode;
 }
 
-function NavRow({ icon: Icon, title, subtitle, onClick, accent = "slate", bettingStatus }: NavRowProps) {
+function HomeActionCard({
+    icon: Icon,
+    title,
+    onClick,
+    accent,
+    bettingStatus,
+    featured,
+    children,
+}: HomeActionCardProps) {
     return (
-        <button type="button" onClick={onClick} className={cn("home-nav-row group", `home-nav-row--${accent}`)}>
-            <ChevronLeft
-                size={17}
-                className="home-nav-row-chevron shrink-0"
-                aria-hidden
-            />
-            <div className="home-nav-row-body">
-                <span className="home-nav-row-title">{title}</span>
-                {subtitle && <span className="home-nav-row-sub">{subtitle}</span>}
+        <button
+            type="button"
+            onClick={onClick}
+            className={cn(
+                "home-action-card group",
+                `home-action-card--${accent}`,
+                featured && "home-action-card--featured"
+            )}
+        >
+            <div className="home-action-card-icon-strip" aria-hidden>
+                <Icon size={featured ? 22 : 20} strokeWidth={2.25} />
+            </div>
+            <div className="home-action-card-body">
+                <span className="home-action-card-title">{title}</span>
+                {children}
                 {bettingStatus && (
-                    <BettingStatusLine status={bettingStatus} className="home-nav-row-status" />
+                    <BettingStatusLine status={bettingStatus} className="home-action-card-status" />
                 )}
             </div>
-            <div className="home-nav-row-icon" aria-hidden>
-                <Icon size={19} strokeWidth={2} />
-            </div>
+            <ChevronLeft
+                size={16}
+                strokeWidth={2.5}
+                className="home-action-card-chevron shrink-0"
+                aria-hidden
+            />
         </button>
     );
 }
@@ -224,14 +242,7 @@ export default function HomePage() {
     };
 
     const displayName = user?.displayName || user?.email?.split('@')[0] || 'שחקן';
-
-    const roundCtaSubtitle = loading
-        ? 'טוען...'
-        : displayRounds.length === 0
-            ? 'אין מחזור פתוח להימורים כרגע'
-            : displayRounds.length === 1
-                ? `ניחוש תוצאות ל${displayRounds[0].name}`
-                : `נדרש להזין הימורים ל-${displayRounds.length} מחזורים עם סגירה קרובה`;
+    const avatarInitial = displayName.trim().charAt(0).toUpperCase();
 
     return (
         <PageShell showThemeToggle={false} className="home-page">
@@ -255,11 +266,10 @@ export default function HomePage() {
 
             <div className="home-layout">
                 <header className="home-hero">
+                    <div className="home-hero-mesh" aria-hidden />
                     <div className="home-hero-logo-bg" aria-hidden>
                         <img src="/icons/officalIcon.png" alt="" />
                     </div>
-                    <div className="home-hero-scrim" aria-hidden />
-                    <div className="home-hero-glow" aria-hidden />
 
                     <div className="home-hero-toolbar">
                         <ThemeToggle className="home-hero-icon-btn" />
@@ -275,8 +285,13 @@ export default function HomePage() {
                     </div>
 
                     <div className="home-hero-brand">
-                        <p className="home-hero-eyebrow">ליגת העל · ניחושים</p>
-                        <h1 className="home-hero-name">{displayName}</h1>
+                        <div className="home-hero-avatar" aria-hidden>
+                            {avatarInitial}
+                        </div>
+                        <div className="home-hero-text">
+                            <p className="home-hero-eyebrow">שלום,</p>
+                            <h1 className="home-hero-name">{displayName}</h1>
+                        </div>
                     </div>
 
                     <div className="home-hero-meta">
@@ -296,16 +311,19 @@ export default function HomePage() {
                     <section className="home-section" aria-label="הימורים">
                         <h2 className="home-section-title">הימורים</h2>
 
-                        <button
-                            type="button"
-                            className="home-primary-cta group"
-                            onClick={() => navigate('/round-bets')}
-                        >
-                            <ChevronLeft size={18} className="home-primary-cta-chevron" aria-hidden />
-                            <div className="home-primary-cta-body">
-                                <span className="home-primary-cta-title">הימורי מחזור</span>
-                                <span className="home-primary-cta-sub">{roundCtaSubtitle}</span>
-                                {!loading && displayRounds.length > 0 && (
+                        <div className="home-card-stack">
+                            <HomeActionCard
+                                icon={Target}
+                                title="הימורי מחזור"
+                                onClick={() => navigate('/round-bets')}
+                                accent="emerald"
+                                featured
+                            >
+                                {loading ? (
+                                    <span className="home-action-card-hint">טוען מחזורים...</span>
+                                ) : displayRounds.length === 0 ? (
+                                    <span className="home-action-card-hint">אין מחזור פתוח כרגע</span>
+                                ) : (
                                     <div
                                         className={cn(
                                             "home-primary-cta-rounds",
@@ -321,17 +339,11 @@ export default function HomePage() {
                                         ))}
                                     </div>
                                 )}
-                            </div>
-                            <div className="home-primary-cta-icon" aria-hidden>
-                                <Target size={22} strokeWidth={2} />
-                            </div>
-                        </button>
+                            </HomeActionCard>
 
-                        <div className="home-nav-group">
-                            <NavRow
+                            <HomeActionCard
                                 icon={Trophy}
                                 title="הימורים מקדימים"
-                                subtitle="אלופה, גביע ויורדות"
                                 onClick={() => navigate('/pre-season-bets')}
                                 accent="amber"
                                 bettingStatus={preSeasonStatus}
@@ -342,26 +354,23 @@ export default function HomePage() {
                     <section className="home-section" aria-label="לוח תוצאות">
                         <h2 className="home-section-title">לוח תוצאות</h2>
 
-                        <div className="home-nav-group">
-                            <NavRow
+                        <div className="home-card-stack">
+                            <HomeActionCard
                                 icon={Users}
                                 title="הימורי כל המשתמשים"
-                                subtitle="צפייה בהימורים למחזור"
                                 onClick={() => navigate('/all-users-bets')}
                                 accent="sky"
                             />
-                            <NavRow
+                            <HomeActionCard
                                 icon={BarChart3}
                                 title="טבלת מיקומים"
-                                subtitle="דירוג ונקודות"
                                 onClick={() => navigate('/leaderboard')}
                                 accent="violet"
                             />
                             {user?.role === 'admin' && (
-                                <NavRow
+                                <HomeActionCard
                                     icon={Settings}
                                     title="ניהול מערכת"
-                                    subtitle="מחזורים, משחקים ותוצאות"
                                     onClick={() => navigate('/admin')}
                                     accent="slate"
                                 />

@@ -217,7 +217,8 @@ export default function PreSeasonBetsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [teamSearch, setTeamSearch] = useState("");
-    const [playerSearch, setPlayerSearch] = useState("");
+    const [scorerSearch, setScorerSearch] = useState("");
+    const [assistsSearch, setAssistsSearch] = useState("");
     const [currentSeason, setCurrentSeason] = useState("");
     const [seasonStartDate, setSeasonStartDate] = useState("");
     const [isBettingAllowed, setIsBettingAllowed] = useState(true);
@@ -270,13 +271,23 @@ export default function PreSeasonBetsPage() {
         return sortedTeams.filter((team) => team.name.includes(term));
     }, [sortedTeams, teamSearch]);
 
-    const filteredPlayers = useMemo(() => {
-        if (!playerSearch.trim()) return sortedPlayers;
-        const term = playerSearch.trim();
+    const filterPlayersBySearch = (search: string) => {
+        if (!search.trim()) return sortedPlayers;
+        const term = search.trim();
         return sortedPlayers.filter(
             (player) => player.name.includes(term) || player.team.includes(term)
         );
-    }, [sortedPlayers, playerSearch]);
+    };
+
+    const filteredScorerPlayers = useMemo(
+        () => filterPlayersBySearch(scorerSearch),
+        [sortedPlayers, scorerSearch]
+    );
+
+    const filteredAssistsPlayers = useMemo(
+        () => filterPlayersBySearch(assistsSearch),
+        [sortedPlayers, assistsSearch]
+    );
 
     const relegationPicks = getRelegationPicks(currentBets);
     const filledPicks = countFilledPicks(currentBets);
@@ -649,21 +660,6 @@ export default function PreSeasonBetsPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    <div className="relative">
-                        <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <input
-                            type="text"
-                            placeholder="חיפוש לפי שם שחקן או קבוצה..."
-                            value={playerSearch}
-                            onChange={(e) => setPlayerSearch(e.target.value)}
-                            className="app-select pr-10"
-                            disabled={!isBettingAllowed}
-                        />
-                        <p className="mt-1.5 text-xs text-muted-foreground">
-                            נמצאו {filteredPlayers.length} שחקנים
-                        </p>
-                    </div>
-
                     <section className="space-y-3">
                         <div className="flex items-center justify-between">
                             <h3 className="flex items-center gap-2 text-sm font-semibold">
@@ -673,6 +669,20 @@ export default function PreSeasonBetsPage() {
                             {savingKey === "topScorer" && (
                                 <span className="text-xs text-muted-foreground">שומר...</span>
                             )}
+                        </div>
+                        <div className="relative">
+                            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                                type="text"
+                                placeholder="חיפוש שחקן למלך השערים..."
+                                value={scorerSearch}
+                                onChange={(e) => setScorerSearch(e.target.value)}
+                                className="app-select pr-10"
+                                disabled={!isBettingAllowed}
+                            />
+                            <p className="mt-1.5 text-xs text-muted-foreground">
+                                נמצאו {filteredScorerPlayers.length} שחקנים
+                            </p>
                         </div>
                         {currentBets.topScorer && (
                             <SelectionChip
@@ -684,7 +694,7 @@ export default function PreSeasonBetsPage() {
                             />
                         )}
                         <PlayerPicker
-                            players={filteredPlayers}
+                            players={filteredScorerPlayers}
                             selectedId={currentBets.topScorer}
                             onSelect={(playerId) => handlePlayerBet("topScorer", playerId)}
                             disabled={!isBettingAllowed || savingKey === "topScorer"}
@@ -701,6 +711,20 @@ export default function PreSeasonBetsPage() {
                                 <span className="text-xs text-muted-foreground">שומר...</span>
                             )}
                         </div>
+                        <div className="relative">
+                            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                                type="text"
+                                placeholder="חיפוש שחקן למלך הבישולים..."
+                                value={assistsSearch}
+                                onChange={(e) => setAssistsSearch(e.target.value)}
+                                className="app-select pr-10"
+                                disabled={!isBettingAllowed}
+                            />
+                            <p className="mt-1.5 text-xs text-muted-foreground">
+                                נמצאו {filteredAssistsPlayers.length} שחקנים
+                            </p>
+                        </div>
                         {currentBets.topAssists && (
                             <SelectionChip
                                 label={getPlayer(currentBets.topAssists)?.name ?? ""}
@@ -711,7 +735,7 @@ export default function PreSeasonBetsPage() {
                             />
                         )}
                         <PlayerPicker
-                            players={filteredPlayers}
+                            players={filteredAssistsPlayers}
                             selectedId={currentBets.topAssists}
                             onSelect={(playerId) => handlePlayerBet("topAssists", playerId)}
                             disabled={!isBettingAllowed || savingKey === "topAssists"}

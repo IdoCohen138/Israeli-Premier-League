@@ -468,15 +468,6 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
           match.actualAwayScore === null)
     );
 
-    if (incompleteMatches.length > 0) {
-      return {
-        hasIncompleteMatches: true,
-        incompleteMatches: incompleteMatches.map(
-          (match) => `${match.homeTeam} vs ${match.awayTeam}`
-        ),
-      };
-    }
-
     const playerIds = playersSnapshot.docs.map((playerDoc) => playerDoc.id);
     const { allBetsForRound, roundBetsByUser } = await loadRoundBetsForPlayers(
       seasonPath,
@@ -511,25 +502,80 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
       });
     }
 
-    for (const match of matches) {
-      if (match.isCancelled) {
-        if (!match.pointsCalculated) continue;
-
-        for (const state of userStates.values()) {
-          if (!state.hasRoundBets) continue;
-          const userBet = state.bets.find((bet) => bet.matchId === match.uid);
-          if (!userBet || !userBet.points || userBet.points <= 0) continue;
-
-          subtractMatchPointsFromUser(state, roundNumber, userBet);
-          state.bets = state.bets.map((bet) =>
-            bet.matchId === match.uid
-              ? { ...bet, points: 0, isExactResult: false, isCorrectDirection: false }
-              : bet
-          );
-          state.dirtyBets = true;
+    const appendUserUpdatesToBatch = (batchOps: FirestoreBatchOp[]) => {
+      for (const state of userStates.values()) {
+        if (state.dirtyPlayer) {
+          batchOps.push({
+            ref: state.playerRef,
+            type: 'set',
+            data: {
+              ...state.playerData,
+              updatedAt: getTrustedNow(),
+            },
+            merge: true,
+          });
         }
-        continue;
+        if (state.dirtyBets && state.hasRoundBets) {
+          batchOps.push({
+            ref: state.roundBetsRef,
+            type: 'update',
+            data: { bets: state.bets, updatedAt: getTrustedNow() },
+          });
+        }
       }
+    };
+
+    for (const match of matches) {
+      if (!match.isCancelled) continue;
+
+      for (const state of userStates.values()) {
+        if (!state.hasRoundBets) continue;
+        const userBet = state.bets.find((bet) => bet.matchId === match.uid);
+        if (!userBet || !userBet.points || userBet.points <= 0) continue;
+
+        subtractMatchPointsFromUser(state, roundNumber, userBet);
+        state.bets = state.bets.map((bet) =>
+          bet.matchId === match.uid
+            ? { ...bet, points: 0, isExactResult: false, isCorrectDirection: false }
+            : bet
+        );
+        state.dirtyBets = true;
+        state.dirtyPlayer = true;
+      }
+    }
+
+    if (incompleteMatches.length > 0) {
+      const partialBatchOps: FirestoreBatchOp[] = [];
+      appendUserUpdatesToBatch(partialBatchOps);
+
+      for (const match of matches) {
+        if (!match.isCancelled) continue;
+        partialBatchOps.push({
+          ref: doc(db, seasonPath, 'rounds', roundNumber.toString(), 'matches', match.uid),
+          type: 'update',
+          data: { pointsCalculated: false },
+        });
+      }
+
+      if (partialBatchOps.length > 0) {
+        await runFirestoreBatches(partialBatchOps);
+
+        invalidateCache(`leaderboard:${currentSeason}`);
+        invalidateCache(`rounds:${seasonPath}`);
+        invalidateCache(`fullyCalculated:${seasonPath}`);
+        invalidateCache(`matches:${seasonPath}:${roundNumber}`);
+      }
+
+      return {
+        hasIncompleteMatches: true,
+        incompleteMatches: incompleteMatches.map(
+          (match) => `${match.homeTeam} vs ${match.awayTeam}`
+        ),
+      };
+    }
+
+    for (const match of matches) {
+      if (match.isCancelled) continue;
 
       if (
         match.actualHomeScore === undefined ||
@@ -617,34 +663,13 @@ export const calculateRoundPoints = async (roundNumber: number): Promise<{ hasIn
     }
 
     const batchOps: FirestoreBatchOp[] = [];
-
-    for (const state of userStates.values()) {
-      if (state.dirtyPlayer) {
-        batchOps.push({
-          ref: state.playerRef,
-          type: 'set',
-          data: {
-            ...state.playerData,
-            updatedAt: getTrustedNow(),
-          },
-          merge: true,
-        });
-      }
-      if (state.dirtyBets && state.hasRoundBets) {
-        batchOps.push({
-          ref: state.roundBetsRef,
-          type: 'update',
-          data: { bets: state.bets, updatedAt: getTrustedNow() },
-        });
-      }
-    }
+    appendUserUpdatesToBatch(batchOps);
 
     for (const match of matches) {
-      if (match.isCancelled) continue;
       batchOps.push({
         ref: doc(db, seasonPath, 'rounds', roundNumber.toString(), 'matches', match.uid),
         type: 'update',
-        data: { pointsCalculated: true },
+        data: { pointsCalculated: match.isCancelled ? false : true },
       });
     }
 
@@ -982,7 +1007,7 @@ export const recalculatePlayerPoints = async (userId: string): Promise<void> => 
   }
 };
 
-// ביטול משחק — מסמן כמבוטל ומחשב מחדש את כל נקודות המחזור (כולל בונוס בלעדי)
+// ביטול משחק — מסמן כמבוטל ומחשב נקודות מחדש (הסרת נקודות המשחק תמיד, חישוב מלא כשכל המשחקים הפעילים עם תוצאה)
 export const cancelMatch = async (
   roundNumber: number,
   matchId: string
@@ -997,10 +1022,20 @@ export const cancelMatch = async (
       throw new Error('Match not found');
     }
 
+    const matchData = matchDoc.data();
+    const hadSavedResult =
+      Boolean(matchData.pointsCalculated) ||
+      (matchData.actualHomeScore != null && matchData.actualAwayScore != null);
+
     await updateDoc(matchRef, {
       isCancelled: true,
-      actualHomeScore: null,
-      actualAwayScore: null,
+      ...(hadSavedResult
+        ? {
+            actualHomeScore: null,
+            actualAwayScore: null,
+            pointsCalculated: false,
+          }
+        : {}),
     });
 
     return await calculateRoundPoints(roundNumber);
