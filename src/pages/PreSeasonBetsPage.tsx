@@ -749,7 +749,7 @@ export default function PreSeasonBetsPage() {
                     <h3 className="mb-1 text-sm font-semibold text-sky-300">מידע חשוב</h3>
                     <ul className="space-y-0.5 text-xs text-muted-foreground">
                         <li>לחיצה על בחירה קיימת מחליפה אותה · X מסיר בחירה</li>
-                        <li>לאחר סגירה לא ניתן לשנות הימורים</li>
+                        <li>לאחר סגירת החלון(תחילת העונה) לא ניתן לשנות הימורים</li>
                         <li>נקודות יוענקו בסוף העונה</li>
                     </ul>
                     <div className="mt-2 border-t border-border/50 pt-2">
