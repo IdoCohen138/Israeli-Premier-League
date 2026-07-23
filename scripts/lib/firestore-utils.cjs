@@ -1,9 +1,4 @@
-const { getAccessToken, getGlobalDefaultAccount } = require('firebase-tools/lib/auth');
-const { Client, setRefreshToken } = require('firebase-tools/lib/apiv2');
-
 const projectId = 'israeli-premier-league';
-const sourceSeason = process.argv[2] ?? '2025-2026';
-const targetSeason = process.argv[3] ?? '2026-2027';
 
 function firestoreValueToJs(value) {
   if (value == null) return null;
@@ -107,7 +102,10 @@ async function listAllDocuments(client, collectionPath) {
   return documents;
 }
 
-async function copyPlayers() {
+async function createFirestoreClient() {
+  const { getAccessToken, getGlobalDefaultAccount } = require('firebase-tools/lib/auth');
+  const { Client, setRefreshToken } = require('firebase-tools/lib/apiv2');
+
   const account = getGlobalDefaultAccount();
   if (!account) {
     throw new Error('Not logged in to Firebase CLI. Run: firebase login');
@@ -116,36 +114,28 @@ async function copyPlayers() {
   setRefreshToken(account.tokens.refresh_token);
   await getAccessToken(account.tokens.refresh_token, []);
 
-  const client = new Client({
+  return new Client({
     urlPrefix: 'https://firestore.googleapis.com/v1',
     auth: true,
   });
-
-  const sourcePath = `/season/${sourceSeason}/players`;
-  const targetPath = `/season/${targetSeason}/players`;
-
-  const documents = await listAllDocuments(client, sourcePath);
-
-  if (documents.length === 0) {
-    throw new Error(`No players found at season/${sourceSeason}/players`);
-  }
-
-  let copied = 0;
-  for (const doc of documents) {
-    const docId = doc.name.split('/').pop();
-    const data = documentToData(doc);
-    await firestoreRequest(client, `${targetPath}/${docId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(dataToDocument(data)),
-    });
-    copied += 1;
-    console.log(`Copied ${docId}: ${data.name ?? '(no name)'} - ${data.team ?? ''}`);
-  }
-
-  console.log(`\nDone. Copied ${copied} players to season/${targetSeason}/players`);
 }
 
-copyPlayers().catch((error) => {
-  console.error('Copy failed:', error.message || error);
-  process.exit(1);
-});
+function buildPlayerDocId(name, teamUid) {
+  const parts = name.trim().split(/\s+/);
+  const encodedParts = parts.map((part) =>
+    [...part].map((char) => char.codePointAt(0)).join('')
+  );
+  return `${encodedParts.join('_')}_${teamUid.toLowerCase()}`;
+}
+
+module.exports = {
+  projectId,
+  firestoreValueToJs,
+  jsToFirestoreValue,
+  documentToData,
+  dataToDocument,
+  firestoreRequest,
+  listAllDocuments,
+  createFirestoreClient,
+  buildPlayerDocId,
+};
