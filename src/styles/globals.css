@@ -358,6 +358,28 @@
     @apply px-2 py-2 text-xs sm:px-3 sm:text-sm;
   }
 
+  .archive-season-table th,
+  .archive-season-table td {
+    @apply px-1 py-1.5 text-center text-xs sm:text-sm;
+  }
+
+  .archive-season-table th:first-child,
+  .archive-season-table td:first-child {
+    @apply w-10 px-0.5;
+  }
+
+  .archive-season-table td:first-child {
+    @apply align-middle;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .archive-season-table th:last-child,
+  .archive-season-table td:last-child {
+    @apply w-14 px-1;
+  }
+
   .rank-gold {
     @apply border-amber-500/30 bg-amber-500/5;
   }
@@ -1324,6 +1346,97 @@
 
   .safe-bottom {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .retro-excel-season {
+    @apply overflow-hidden rounded-lg border border-[#8ea9db] shadow-md;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+
+  .retro-excel-season__titlebar {
+    @apply flex flex-row-reverse items-center gap-2 px-3 py-2 text-xs font-medium text-white;
+    background: linear-gradient(180deg, #217346 0%, #185c37 100%);
+  }
+
+  .retro-excel-season__filename {
+    @apply min-w-0 flex-1 text-end;
+    direction: ltr;
+    unicode-bidi: plaintext;
+  }
+
+  .retro-excel-season__ribbon {
+    @apply flex flex-wrap items-center gap-2 border-b px-3 py-2 text-xs;
+    background: #e2efda;
+    border-color: #a9d08e;
+    color: #375623;
+  }
+
+  .retro-excel-season__badge {
+    @apply rounded px-2 py-0.5 font-semibold;
+    background: #fff2cc;
+    border: 1px solid #bf9000;
+    color: #7f6000;
+  }
+
+  .retro-excel-season__subtitle {
+    @apply opacity-80;
+  }
+
+  .retro-excel-season__sheet {
+    @apply p-2;
+    background: #f8f9fa;
+  }
+
+  .retro-excel-season__table {
+    @apply w-full border-collapse text-sm;
+    font-family: 'Courier New', Courier, monospace;
+  }
+
+  .retro-excel-season__table th,
+  .retro-excel-season__table td {
+    @apply border px-3 py-1.5;
+    border-color: #b4b4b4;
+  }
+
+  .retro-excel-season__table th {
+    background: #d9e1f2;
+    color: #1f3864;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .retro-excel-season__table td:first-child {
+    @apply text-center font-bold;
+    width: 2.5rem;
+    background: #f2f2f2;
+    color: #333333;
+  }
+
+  .retro-excel-season__table td:nth-child(2),
+  .retro-excel-season__table td:last-child {
+    @apply text-center font-bold tabular-nums;
+    color: #1a1a1a;
+  }
+
+  .retro-excel-season__table tbody tr {
+    background: #ffffff;
+    color: #1a1a1a;
+  }
+
+  .retro-excel-season__row--podium {
+    background: #fff2cc !important;
+  }
+
+  .retro-excel-season__row--podium td {
+    color: #1a1a1a;
+  }
+
+  .retro-excel-season__footnote {
+    @apply border-t px-3 py-2 text-[11px] leading-relaxed;
+    background: #fafafa;
+    border-color: #b4b4b4;
+    color: #595959;
+    font-style: italic;
   }
 }
 

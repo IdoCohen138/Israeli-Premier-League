@@ -4,7 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { X, Trophy, Medal, Award, History } from 'lucide-react';
 import { getLeaderboard } from '@/lib/playerBets';
 import { formatSeasonDisplay, listSeasonIds, sortSeasonIdsDesc } from '@/lib/season';
+import { isRetroSeasonId, mergeWithRetroSeasonIds } from '@/data/retroSeason2024_2025';
+import RetroExcelSeasonTable from '@/components/RetroExcelSeasonTable';
 import type { PlayerBets } from '@/types';
+
+function buildArchiveSeasonList(seasonIds: string[], excludeSeasonId?: string): string[] {
+  const filtered = seasonIds.filter((id) => id !== excludeSeasonId);
+  return sortSeasonIdsDesc(mergeWithRetroSeasonIds(filtered));
+}
 
 interface PreviousSeasonTableModalProps {
   isOpen: boolean;
@@ -46,26 +53,19 @@ export default function PreviousSeasonTableModal({
   useEffect(() => {
     if (!isOpen) return;
 
+    setSelectedSeasonId(initialSeasonId ?? null);
+    setLeaderboard([]);
+
     const loadSeasons = async () => {
       if (availableSeasonIds && availableSeasonIds.length > 0) {
-        const list = sortSeasonIdsDesc(
-          availableSeasonIds.filter((id) => id !== excludeSeasonId)
-        );
-        setSeasons(list);
-        if (!selectedSeasonId && list.length > 0) {
-          setSelectedSeasonId(initialSeasonId ?? list[0]);
-        }
+        setSeasons(buildArchiveSeasonList(availableSeasonIds, excludeSeasonId));
         return;
       }
 
       setLoadingSeasons(true);
       try {
         const all = await listSeasonIds();
-        const list = sortSeasonIdsDesc(all.filter((id) => id !== excludeSeasonId));
-        setSeasons(list);
-        if (!selectedSeasonId && list.length > 0) {
-          setSelectedSeasonId(initialSeasonId ?? list[0]);
-        }
+        setSeasons(buildArchiveSeasonList(all, excludeSeasonId));
       } catch (error) {
         console.error('Error loading previous seasons:', error);
       } finally {
@@ -74,11 +74,17 @@ export default function PreviousSeasonTableModal({
     };
 
     loadSeasons();
-  }, [isOpen, availableSeasonIds, excludeSeasonId, initialSeasonId, selectedSeasonId]);
+  }, [isOpen, availableSeasonIds, excludeSeasonId, initialSeasonId]);
 
   useEffect(() => {
     if (!isOpen || !selectedSeasonId) {
       setLeaderboard([]);
+      return;
+    }
+
+    if (isRetroSeasonId(selectedSeasonId)) {
+      setLeaderboard([]);
+      setLoadingTable(false);
       return;
     }
 
@@ -140,7 +146,7 @@ export default function PreviousSeasonTableModal({
                 </option>
               ) : (
                 <>
-                  {!selectedSeasonId && <option value="">— בחר עונה —</option>}
+                  <option value="">— בחר עונה —</option>
                   {seasons.map((id) => (
                     <option key={id} value={id}>
                       עונת {formatSeasonDisplay(id)}
@@ -151,7 +157,11 @@ export default function PreviousSeasonTableModal({
             </select>
           </div>
 
-          {selectedSeasonId && (
+          {selectedSeasonId && isRetroSeasonId(selectedSeasonId) && (
+            <RetroExcelSeasonTable />
+          )}
+
+          {selectedSeasonId && !isRetroSeasonId(selectedSeasonId) && (
             <div className="rounded-xl border border-border/60 bg-card/40">
               <div className="border-b border-border/60 px-3 py-2 text-xs font-semibold text-muted-foreground">
                 טבלה סופית — עונת {formatSeasonDisplay(selectedSeasonId)}
@@ -162,20 +172,20 @@ export default function PreviousSeasonTableModal({
                 ) : leaderboard.length === 0 ? (
                   <p className="py-6 text-center text-sm text-muted-foreground">אין נתונים לעונה זו</p>
                 ) : (
-                  <table className="table-compact w-full">
+                  <table className="archive-season-table w-full">
                     <thead>
                       <tr className="border-b border-border/80 text-muted-foreground">
-                        <th className="w-14 text-right font-medium">מיקום</th>
-                        <th className="text-right font-medium">שם</th>
-                        <th className="text-left font-medium">נקודות</th>
+                        <th className="w-10 font-medium">#</th>
+                        <th className="font-medium">שם</th>
+                        <th className="w-16 font-medium">נק&apos;</th>
                       </tr>
                     </thead>
                     <tbody>
                       {leaderboard.map((entry, index) => (
                         <tr key={entry.uid} className="border-b border-border/40">
-                          <td className="py-2">{getRankIcon(index + 1)}</td>
-                          <td className="py-2 font-medium">{entry.displayName || 'שחקן'}</td>
-                          <td className="py-2 text-left font-bold text-primary">{entry.totalPoints}</td>
+                          <td>{getRankIcon(index + 1)}</td>
+                          <td className="font-medium">{entry.displayName || 'שחקן'}</td>
+                          <td className="font-bold text-primary">{entry.totalPoints}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -184,10 +194,6 @@ export default function PreviousSeasonTableModal({
               </div>
             </div>
           )}
-
-          <div className="flex justify-center pt-1">
-            <Button variant="outline" size="sm" onClick={handleClose}>סגור</Button>
-          </div>
         </CardContent>
       </Card>
     </div>
