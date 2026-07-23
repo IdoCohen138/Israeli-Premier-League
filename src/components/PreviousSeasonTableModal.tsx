@@ -183,7 +183,11 @@ export default function PreviousSeasonTableModal({
                     <tbody>
                       {leaderboard.map((entry, index) => (
                         <tr key={entry.uid} className="border-b border-border/40">
-                          <td>{getRankIcon(index + 1)}</td>
+                          <td>
+                            <div className="archive-season-table__rank">
+                              {getRankIcon(index + 1)}
+                            </div>
+                          </td>
                           <td className="font-medium">{entry.displayName || 'שחקן'}</td>
                           <td className="font-bold text-primary">{entry.totalPoints}</td>
                         </tr>

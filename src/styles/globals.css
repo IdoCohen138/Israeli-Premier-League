@@ -368,11 +368,8 @@
     @apply w-10 px-0.5;
   }
 
-  .archive-season-table td:first-child {
-    @apply align-middle;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  .archive-season-table__rank {
+    @apply flex w-full items-center justify-center;
   }
 
   .archive-season-table th:last-child,
