@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,26 +44,129 @@ function sortByName<T extends { name: string }>(items: T[]): T[] {
 
 const TOTAL_PRESEASON_PICKS = 6;
 
-function getRelegationPicks(bets: Record<string, string>): string[] {
+type PreSeasonBets = Record<string, string>;
+
+interface ProgressCheck {
+    id: string;
+    label: string;
+    done: boolean;
+}
+
+interface PreSeasonProgress {
+    filledPicks: number;
+    totalPicks: number;
+    progressPercent: number;
+    isComplete: boolean;
+    checks: ProgressCheck[];
+    relegationPicks: string[];
+}
+
+function getRelegationPicks(bets: PreSeasonBets): string[] {
     const picks = [bets.relegation1, bets.relegation2].filter(Boolean);
     return [...new Set(picks)];
 }
 
-function countFilledPicks(bets: Record<string, string>): number {
-    return [
-        bets.champion,
-        bets.cup,
-        bets.relegation1,
-        bets.relegation2,
-        bets.topScorer,
-        bets.topAssists,
-    ].filter(Boolean).length;
+function countFilledPicks(bets: PreSeasonBets): number {
+    let count = 0;
+    if (bets.champion) count++;
+    if (bets.cup) count++;
+    count += getRelegationPicks(bets).length;
+    if (bets.topScorer) count++;
+    if (bets.topAssists) count++;
+    return count;
+}
+
+function computePreSeasonProgress(bets: PreSeasonBets): PreSeasonProgress {
+    const relegationPicks = getRelegationPicks(bets);
+    const filledPicks = countFilledPicks(bets);
+    const checks: ProgressCheck[] = [
+        { id: "champion", label: "אלופה", done: !!bets.champion },
+        { id: "cup", label: "גביע", done: !!bets.cup },
+        {
+            id: "relegation",
+            label: `יורדות (${relegationPicks.length}/2)`,
+            done: relegationPicks.length === 2,
+        },
+        { id: "topScorer", label: "מלך שערים", done: !!bets.topScorer },
+        { id: "topAssists", label: "מלך בישולים", done: !!bets.topAssists },
+    ];
+    const isComplete = filledPicks === TOTAL_PRESEASON_PICKS && checks.every((item) => item.done);
+
+    return {
+        filledPicks,
+        totalPicks: TOTAL_PRESEASON_PICKS,
+        progressPercent: Math.min(100, (filledPicks / TOTAL_PRESEASON_PICKS) * 100),
+        isComplete,
+        checks,
+        relegationPicks,
+    };
+}
+
+interface PickSummaryItem {
+    key: string;
+    label: string;
+    sublabel: string;
+    teamId?: string;
+}
+
+function buildPickSummary(
+    bets: PreSeasonBets,
+    relegationPicks: string[],
+    getTeamName: (teamId: string) => string | undefined,
+    getPlayer: (playerId: string) => Player | undefined
+): PickSummaryItem[] {
+    const items: PickSummaryItem[] = [];
+
+    if (bets.champion) {
+        items.push({
+            key: "champion",
+            label: getTeamName(bets.champion) ?? "קבוצה לא ידועה",
+            sublabel: "אלופה",
+            teamId: bets.champion,
+        });
+    }
+    if (bets.cup) {
+        items.push({
+            key: "cup",
+            label: getTeamName(bets.cup) ?? "קבוצה לא ידועה",
+            sublabel: "גביע",
+            teamId: bets.cup,
+        });
+    }
+    relegationPicks.forEach((teamId) => {
+        items.push({
+            key: `relegation-${teamId}`,
+            label: getTeamName(teamId) ?? "קבוצה לא ידועה",
+            sublabel: "יורדת ליגה",
+            teamId,
+        });
+    });
+    if (bets.topScorer) {
+        const player = getPlayer(bets.topScorer);
+        items.push({
+            key: "topScorer",
+            label: player?.name ?? "שחקן לא ידוע",
+            sublabel: "מלך שערים",
+            teamId: player?.teamId,
+        });
+    }
+    if (bets.topAssists) {
+        const player = getPlayer(bets.topAssists);
+        items.push({
+            key: "topAssists",
+            label: player?.name ?? "שחקן לא ידוע",
+            sublabel: "מלך בישולים",
+            teamId: player?.teamId,
+        });
+    }
+
+    return items;
 }
 
 function setRelegationPicks(
-    bets: Record<string, string>,
+    bets: PreSeasonBets,
     picks: string[]
-): Record<string, string> {
+): PreSeasonBets {
     return {
         ...bets,
         relegation1: picks[0] ?? "",
@@ -190,7 +293,7 @@ function SelectionChip({ label, sublabel, teamId, onClear, disabled }: Selection
         <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
             {teamId && <TeamLogo teamId={teamId} size="sm" />}
             <div className="min-w-0 flex-1 text-right">
-                <div className="truncate text-sm font-medium text-emerald-300">{label}</div>
+                <div className="truncate text-sm font-medium text-emerald-700 dark:text-emerald-300">{label}</div>
                 {sublabel && (
                     <div className="truncate text-xs text-muted-foreground">{sublabel}</div>
                 )}
@@ -213,7 +316,8 @@ export default function PreSeasonBetsPage() {
     const { user } = useAuth();
     const [teams, setTeams] = useState<Team[]>([]);
     const [players, setPlayers] = useState<Player[]>([]);
-    const [currentBets, setCurrentBets] = useState<Record<string, string>>({});
+    const [currentBets, setCurrentBets] = useState<PreSeasonBets>({});
+    const currentBetsRef = useRef(currentBets);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [teamSearch, setTeamSearch] = useState("");
@@ -229,6 +333,10 @@ export default function PreSeasonBetsPage() {
         setCurrentSeason(getCurrentSeason());
         loadData();
     }, [user]);
+
+    useEffect(() => {
+        currentBetsRef.current = currentBets;
+    }, [currentBets]);
 
     useEffect(() => {
         if (!seasonStartDate || !isBettingAllowed) return;
@@ -289,17 +397,17 @@ export default function PreSeasonBetsPage() {
         [sortedPlayers, assistsSearch]
     );
 
-    const relegationPicks = getRelegationPicks(currentBets);
-    const filledPicks = countFilledPicks(currentBets);
-    const isProgressComplete = filledPicks === TOTAL_PRESEASON_PICKS;
+    const progress = useMemo(() => computePreSeasonProgress(currentBets), [currentBets]);
+    const { filledPicks, isComplete: isProgressComplete, checks: progressChecks, relegationPicks } =
+        progress;
 
-    const progressChecks = [
-        { label: "אלופה", done: !!currentBets.champion },
-        { label: "גביע", done: !!currentBets.cup },
-        { label: `יורדות (${relegationPicks.length}/2)`, done: relegationPicks.length === 2 },
-        { label: "מלך שערים", done: !!currentBets.topScorer },
-        { label: "מלך בישולים", done: !!currentBets.topAssists },
-    ];
+    const getTeamName = (teamId: string) => teams.find((team) => team.uid === teamId)?.name;
+    const getPlayer = (playerId: string) => players.find((player) => player.uid === playerId);
+
+    const pickSummary = useMemo(
+        () => buildPickSummary(currentBets, relegationPicks, getTeamName, getPlayer),
+        [currentBets, relegationPicks, teams, players]
+    );
 
     const loadData = async () => {
         if (!user) return;
@@ -354,7 +462,7 @@ export default function PreSeasonBetsPage() {
         }
     };
 
-    const persistBets = async (newBets: Record<string, string>, savingId: string) => {
+    const persistBets = async (newBets: PreSeasonBets, savingId: string) => {
         if (!user) return;
 
         if (!isBettingAllowed) {
@@ -381,12 +489,14 @@ export default function PreSeasonBetsPage() {
     };
 
     const handleTeamBet = async (key: SingleTeamBetKey, teamId: string) => {
-        const nextValue = currentBets[key] === teamId ? "" : teamId;
-        await persistBets({ ...currentBets, [key]: nextValue }, key);
+        const prev = currentBetsRef.current;
+        const nextValue = prev[key] === teamId ? "" : teamId;
+        await persistBets({ ...prev, [key]: nextValue }, key);
     };
 
     const handleRelegationToggle = async (teamId: string) => {
-        const picks = getRelegationPicks(currentBets);
+        const prev = currentBetsRef.current;
+        const picks = getRelegationPicks(prev);
 
         let nextPicks: string[];
         if (picks.includes(teamId)) {
@@ -397,16 +507,14 @@ export default function PreSeasonBetsPage() {
             return;
         }
 
-        await persistBets(setRelegationPicks(currentBets, nextPicks), "relegation");
+        await persistBets(setRelegationPicks(prev, nextPicks), "relegation");
     };
 
     const handlePlayerBet = async (key: PlayerBetKey, playerId: string) => {
-        const nextValue = currentBets[key] === playerId ? "" : playerId;
-        await persistBets({ ...currentBets, [key]: nextValue }, key);
+        const prev = currentBetsRef.current;
+        const nextValue = prev[key] === playerId ? "" : playerId;
+        await persistBets({ ...prev, [key]: nextValue }, key);
     };
-
-    const getTeamName = (teamId: string) => teams.find((team) => team.uid === teamId)?.name;
-    const getPlayer = (playerId: string) => players.find((player) => player.uid === playerId);
 
     if (loading) return <LoadingScreen label="טוען הימורים מקדימים..." />;
 
@@ -443,17 +551,19 @@ export default function PreSeasonBetsPage() {
             <Card
                 className={cn(
                     isProgressComplete
-                        ? "border-emerald-500/30 bg-emerald-500/10"
+                        ? "border-emerald-500/40"
                         : "border-red-500/30 bg-red-500/10"
                 )}
             >
                 <CardContent className="p-4">
                     <div className="mb-2 flex items-center justify-between text-sm">
-                        <span className="font-medium">התקדמות</span>
+                        <span className="font-medium text-foreground">
+                            {isProgressComplete ? "כל ההימורים הושלמו" : "התקדמות"}
+                        </span>
                         <span
                             className={cn(
                                 "font-semibold tabular-nums",
-                                isProgressComplete ? "text-emerald-400" : "text-red-400"
+                                isProgressComplete ? "text-emerald-600 dark:text-emerald-400" : "text-red-400"
                             )}
                         >
                             {filledPicks}/{TOTAL_PRESEASON_PICKS} בחירות
@@ -461,8 +571,8 @@ export default function PreSeasonBetsPage() {
                     </div>
                     <div
                         className={cn(
-                            "mb-3 h-2 overflow-hidden rounded-full",
-                            isProgressComplete ? "bg-emerald-500/20" : "bg-red-500/20"
+                            "mb-3 h-2.5 overflow-hidden rounded-full bg-secondary",
+                            isProgressComplete ? "ring-1 ring-emerald-500/30" : ""
                         )}
                     >
                         <div
@@ -470,7 +580,7 @@ export default function PreSeasonBetsPage() {
                                 "h-full rounded-full transition-all duration-300",
                                 isProgressComplete ? "bg-emerald-500" : "bg-red-500"
                             )}
-                            style={{ width: `${(filledPicks / TOTAL_PRESEASON_PICKS) * 100}%` }}
+                            style={{ width: `${progress.progressPercent}%` }}
                         />
                     </div>
                     {!isProgressComplete && (
@@ -478,15 +588,15 @@ export default function PreSeasonBetsPage() {
                             יש למלא את כל 6 ההימורים
                         </p>
                     )}
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="mb-3 flex flex-wrap gap-1.5">
                         {progressChecks.map((item) => (
                             <span
-                                key={item.label}
+                                key={item.id}
                                 className={cn(
                                     "rounded-full px-2 py-0.5 text-[11px] font-medium",
                                     item.done
-                                        ? "bg-emerald-500/20 text-emerald-300"
-                                        : "bg-red-500/20 text-red-300"
+                                        ? "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
+                                        : "bg-red-500/20 text-red-600 dark:text-red-300"
                                 )}
                             >
                                 {item.done ? "✓ " : ""}
@@ -494,6 +604,22 @@ export default function PreSeasonBetsPage() {
                             </span>
                         ))}
                     </div>
+
+                    {pickSummary.length > 0 && (
+                        <div className="space-y-2 border-t border-border/60 pt-3">
+                            <p className="text-xs font-semibold text-foreground">הבחירות שלי</p>
+                            <div className="grid gap-1.5 sm:grid-cols-2">
+                                {pickSummary.map((pick) => (
+                                    <SelectionChip
+                                        key={pick.key}
+                                        label={pick.label}
+                                        sublabel={pick.sublabel}
+                                        teamId={pick.teamId}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
@@ -746,17 +872,9 @@ export default function PreSeasonBetsPage() {
 
             <Card className="border-sky-500/20 bg-sky-500/5">
                 <CardContent className="p-3">
-                    <h3 className="mb-1 text-sm font-semibold text-sky-300">מידע חשוב</h3>
-                    <ul className="space-y-0.5 text-xs text-muted-foreground">
-                        <li>לחיצה על בחירה קיימת מחליפה אותה · X מסיר בחירה</li>
-                        <li>לאחר סגירת החלון(תחילת העונה) לא ניתן לשנות הימורים</li>
-                        <li>נקודות יוענקו בסוף העונה</li>
-                    </ul>
-                    <div className="mt-2 border-t border-border/50 pt-2">
-                        <p className="text-xs font-semibold text-foreground">
-                            ניקוד: אלופה 10 · גביע 8 · יורדת 5 (לכל קבוצה) · שערים 7 · בישולים 5
-                        </p>
-                    </div>
+                    <p className="text-xs font-semibold text-foreground">
+                        ניקוד: אלופה 10 · גביע 8 · יורדת 5 (לכל קבוצה) · שערים 7 · בישולים 5
+                    </p>
                 </CardContent>
             </Card>
         </PageShell>

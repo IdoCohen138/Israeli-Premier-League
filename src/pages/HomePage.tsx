@@ -26,7 +26,6 @@ import {
 import {
     ensureServerTimeSynced,
     getBettingWindowStatus,
-    formatBettingStatusLine,
     type BettingWindowStatus,
 } from "@/lib/serverTime";
 import {
@@ -39,26 +38,17 @@ import PreviousSeasonTableModal, { getPreviousSeasonDismissKey } from "@/compone
 import PageShell from "@/components/layout/PageShell";
 import ThemeToggle from "@/components/layout/ThemeToggle";
 
-function BettingStatusLine({
-    status,
-    className,
-}: {
-    status: BettingWindowStatus;
-    className?: string;
-}) {
-    const line = formatBettingStatusLine(status);
+function HomeOpenBettingBadge({ status }: { status: BettingWindowStatus }) {
+    if (!status.isOpen) return null;
 
     return (
-        <p
-            className={cn(
-                "home-betting-status",
-                status.isOpen ? "home-betting-status--open" : "home-betting-status--closed",
-                className
-            )}
-        >
-            <span className="home-betting-status-dot" aria-hidden />
-            <span>{line}</span>
-        </p>
+        <span className="home-open-bet-badge" role="status">
+            <span className="home-open-bet-badge-dot" aria-hidden />
+            <span className="home-open-bet-badge-text">פתוח</span>
+            {status.remainingLabel ? (
+                <span className="home-open-bet-badge-time">· {status.remainingLabel}</span>
+            ) : null}
+        </span>
     );
 }
 
@@ -70,9 +60,9 @@ function ActiveRoundStatusRow({
     status: BettingWindowStatus;
 }) {
     return (
-        <div className="home-active-round-row">
-            <span className="home-active-round-name">{round.name}</span>
-            <BettingStatusLine status={status} className="home-active-round-status" />
+        <div className="home-bet-status-row">
+            <span className="home-bet-status-row-name">{round.name}</span>
+            <HomeOpenBettingBadge status={status} />
         </div>
     );
 }
@@ -82,7 +72,6 @@ interface HomeActionCardProps {
     title: string;
     onClick: () => void;
     accent: "emerald" | "amber" | "sky" | "violet" | "slate";
-    bettingStatus?: BettingWindowStatus | null;
     featured?: boolean;
     children?: React.ReactNode;
 }
@@ -92,7 +81,6 @@ function HomeActionCard({
     title,
     onClick,
     accent,
-    bettingStatus,
     featured,
     children,
 }: HomeActionCardProps) {
@@ -112,9 +100,6 @@ function HomeActionCard({
             <div className="home-action-card-body">
                 <span className="home-action-card-title">{title}</span>
                 {children}
-                {bettingStatus && (
-                    <BettingStatusLine status={bettingStatus} className="home-action-card-status" />
-                )}
             </div>
             <ChevronLeft
                 size={16}
@@ -156,12 +141,7 @@ export default function HomePage() {
 
     const refreshBettingStatuses = () => {
         setStatusTick((tick) => tick + 1);
-        const seasonDeadline = preSeasonDeadlineRef.current;
-        if (seasonDeadline) {
-            setPreSeasonStatus(getBettingWindowStatus(seasonDeadline));
-        } else {
-            setPreSeasonStatus(null);
-        }
+        setPreSeasonStatus(getBettingWindowStatus(preSeasonDeadlineRef.current));
     };
 
     useEffect(() => {
@@ -182,8 +162,7 @@ export default function HomePage() {
                 if (cancelled) return;
 
                 preSeasonDeadlineRef.current = parseSeasonStartField(seasonData?.seasonStart);
-                const seasonDeadline = preSeasonDeadlineRef.current;
-                setPreSeasonStatus(seasonDeadline ? getBettingWindowStatus(seasonDeadline) : null);
+                setPreSeasonStatus(getBettingWindowStatus(preSeasonDeadlineRef.current));
             } catch (error) {
                 console.error('Error loading home round info:', error);
             }
@@ -242,7 +221,6 @@ export default function HomePage() {
     };
 
     const displayName = user?.displayName || user?.email?.split('@')[0] || 'שחקן';
-    const avatarInitial = displayName.trim().charAt(0).toUpperCase();
 
     return (
         <PageShell showThemeToggle={false} className="home-page">
@@ -285,9 +263,6 @@ export default function HomePage() {
                     </div>
 
                     <div className="home-hero-brand">
-                        <div className="home-hero-avatar" aria-hidden>
-                            {avatarInitial}
-                        </div>
                         <div className="home-hero-text">
                             <p className="home-hero-eyebrow">שלום,</p>
                             <h1 className="home-hero-name">{displayName}</h1>
@@ -346,8 +321,11 @@ export default function HomePage() {
                                 title="הימורים מקדימים"
                                 onClick={() => navigate('/pre-season-bets')}
                                 accent="amber"
-                                bettingStatus={preSeasonStatus}
-                            />
+                            >
+                                {preSeasonStatus?.isOpen && (
+                                    <HomeOpenBettingBadge status={preSeasonStatus} />
+                                )}
+                            </HomeActionCard>
                         </div>
                     </section>
 
