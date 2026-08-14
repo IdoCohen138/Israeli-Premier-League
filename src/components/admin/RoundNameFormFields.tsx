@@ -36,14 +36,23 @@ export default function RoundNameFormFields({
                     <input
                         type="number"
                         min={1}
-                        value={parts.number}
+                        value={parts.number ?? ''}
                         disabled={numberDisabled}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === '') {
+                                onChange({ ...parts, number: null });
+                                return;
+                            }
+
+                            const parsed = Number(raw);
+                            if (!Number.isFinite(parsed)) return;
+
                             onChange({
                                 ...parts,
-                                number: Math.max(1, Number(e.target.value) || 1),
-                            })
-                        }
+                                number: Math.max(1, Math.trunc(parsed)),
+                            });
+                        }}
                         className="app-select text-sm"
                     />
                 </div>

@@ -22,6 +22,7 @@ import EmptyState from "@/components/layout/EmptyState";
 import { PlayerBets } from "@/types";
 import { getLeaderboard } from "@/lib/playerBets";
 import { getCurrentSeason, getCurrentSeasonData, getSortedRounds, getFullyCalculatedRounds } from "@/lib/season";
+import { parseRoundDisplayLabel, type RoundDisplayLabel } from "@/lib/roundLabels";
 import { cn } from "@/lib/utils";
 
 function sumMap(map?: Record<number, number>): number {
@@ -37,7 +38,7 @@ export default function LeaderboardPage() {
     const [userRank, setUserRank] = useState<number | null>(null);
     const [currentSeason, setCurrentSeason] = useState<string>('');
     const [showPreSeasonColumn, setShowPreSeasonColumn] = useState(false);
-    const [roundNames, setRoundNames] = useState<Record<number, string>>({});
+    const [roundLabels, setRoundLabels] = useState<Record<number, RoundDisplayLabel>>({});
     const [sortedRoundNumbers, setSortedRoundNumbers] = useState<number[]>([]);
     const [lastCalculatedRound, setLastCalculatedRound] = useState<number | null>(null);
     const [calculatedRounds, setCalculatedRounds] = useState<Set<number>>(new Set());
@@ -61,15 +62,15 @@ export default function LeaderboardPage() {
     const loadRoundNames = async () => {
         try {
             const sortedRounds = await getSortedRounds();
-            const names: Record<number, string> = {};
+            const labels: Record<number, RoundDisplayLabel> = {};
             const roundNumbers: number[] = [];
 
             sortedRounds.forEach((round) => {
                 roundNumbers.push(round.number);
-                names[round.number] = round.name || `מחזור ${round.number}`;
+                labels[round.number] = parseRoundDisplayLabel(round.name || '', round.number);
             });
 
-            setRoundNames(names);
+            setRoundLabels(labels);
             setSortedRoundNumbers(roundNumbers);
         } catch (error) {
             console.error('Error loading round names:', error);
@@ -145,7 +146,7 @@ export default function LeaderboardPage() {
     };
 
     const lastRoundLabel = lastCalculatedRound
-        ? roundNames[lastCalculatedRound] || `מחזור ${lastCalculatedRound}`
+        ? roundLabels[lastCalculatedRound]?.full || `מחזור ${lastCalculatedRound}`
         : 'מחזור אחרון';
 
     const calculatedRoundsNewestFirst = sortedRoundNumbers
@@ -382,14 +383,16 @@ export default function LeaderboardPage() {
                                                     <th className="sticky-player-col px-3 text-right">שחקן</th>
                                                     <th className="sticky-total-col">סה"כ</th>
                                                     {calculatedRoundsNewestFirst.map((round) => {
-                                                        const name = roundNames[round] || `מחזור ${round}`;
+                                                        const label = roundLabels[round];
+                                                        const compact = label?.compact || `מח' ${round}`;
+                                                        const full = label?.full || `מחזור ${round}`;
                                                         return (
                                                             <th
                                                                 key={round}
                                                                 className="round-col-header"
-                                                                title={name}
+                                                                title={full}
                                                             >
-                                                                <span className="round-col-header-text">{name}</span>
+                                                                <span className="round-col-header-text">{compact}</span>
                                                             </th>
                                                         );
                                                     })}
@@ -418,7 +421,8 @@ export default function LeaderboardPage() {
                                                             {entry.totalPoints || 0}
                                                         </td>
                                                         {calculatedRoundsNewestFirst.map((round) => {
-                                                            const name = roundNames[round] || `מחזור ${round}`;
+                                                            const label = roundLabels[round];
+                                                            const full = label?.full || `מחזור ${round}`;
                                                             const pts = entry.roundPoints?.[round] ?? 0;
                                                             return (
                                                                 <td
@@ -428,7 +432,7 @@ export default function LeaderboardPage() {
                                                                         pts > 0 && "round-col-has-points",
                                                                         pts === 0 && "round-col-zero"
                                                                     )}
-                                                                    title={`${name}: ${pts} נקודות`}
+                                                                    title={`${full}: ${pts} נקודות`}
                                                                 >
                                                                     {pts}
                                                                 </td>

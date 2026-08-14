@@ -3,7 +3,7 @@ export type RoundKind = 'regular' | 'completion';
 
 export interface RoundNameParts {
     /** מספר תצוגה בשם המחזור — אינו ייחודי ואינו מזהה Firestore */
-    number: number;
+    number: number | null;
     seasonPhase: RoundSeasonPhase;
     roundKind: RoundKind;
 }
@@ -20,7 +20,7 @@ export const ROUND_KIND_OPTIONS: { value: RoundKind; label: string }[] = [
 ];
 
 export function buildRoundFullName(parts: RoundNameParts): string {
-    let name = `מחזור ${parts.number}`;
+    let name = parts.number != null ? `מחזור ${parts.number}` : 'מחזור';
 
     if (parts.seasonPhase === 'playoff_upper') {
         name += ' - פלייאוף עליון';
@@ -36,7 +36,7 @@ export function buildRoundFullName(parts: RoundNameParts): string {
 }
 
 export function buildRoundCompactName(parts: RoundNameParts): string {
-    let compact = `מח' ${parts.number}`;
+    let compact = parts.number != null ? `מח' ${parts.number}` : "מח'";
 
     if (parts.seasonPhase === 'playoff_upper') {
         compact += ' פ.עליון';
@@ -107,6 +107,10 @@ export function getDefaultRoundNameParts(roundNumber: number): RoundNameParts {
         seasonPhase: 'regular_season',
         roundKind: 'regular',
     };
+}
+
+export function isRoundNameNumberValid(number: number | null): number is number {
+    return number != null && number >= 1;
 }
 
 export function getRoundDisplayLabels(

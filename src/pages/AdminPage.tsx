@@ -12,6 +12,7 @@ import RoundNameFormFields from "@/components/admin/RoundNameFormFields";
 import {
     buildRoundFullName,
     getDefaultRoundNameParts,
+    isRoundNameNumberValid,
     parseRoundFullName,
     type RoundNameParts,
 } from "@/lib/roundNameFormat";
@@ -386,6 +387,10 @@ export default function AdminPage() {
             alert('עליך להגדיר תאריך ושעת סגירת הימורים למחזור');
             return;
         }
+        if (!isRoundNameNumberValid(newRoundNameParts.number)) {
+            alert('יש להזין מספר מחזור בשם');
+            return;
+        }
 
         try {
             const generatedName = buildRoundFullName(newRoundNameParts);
@@ -585,10 +590,12 @@ export default function AdminPage() {
     const handleSaveRoundEdit = async () => {
         if (!editingRound) return;
 
-        const generatedName = buildRoundFullName({
-            ...roundEditData.nameParts,
-            number: Math.max(1, roundEditData.nameParts.number),
-        });
+        if (!isRoundNameNumberValid(roundEditData.nameParts.number)) {
+            alert('יש להזין מספר מחזור בשם');
+            return;
+        }
+
+        const generatedName = buildRoundFullName(roundEditData.nameParts);
 
         try {
             const roundRef = doc(db, 'season', currentSeason, 'rounds', editingRound.toString());
