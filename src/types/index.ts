@@ -37,8 +37,9 @@ export interface Match {
 }
 
 export interface Round {
+  /** מזהה פנימי ייחודי (מפתח Firestore) — לא בהכרח תואם למספר בשם */
   number: number;
-  name?: string; // שם המחזור
+  name?: string; // שם המחזור (כולל מספר תצוגה שאינו ייחודי)
   matches: string[]; // מערך של UIDs
   matchesDetails?: Match[]; // פרטי המשחקים המלאים
   startTime: string;

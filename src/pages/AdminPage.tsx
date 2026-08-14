@@ -8,6 +8,13 @@ import TeamLogo from "@/components/TeamLogo";
 import AdminMatchRow from "@/components/admin/AdminMatchRow";
 import AdminResultMatchRow from "@/components/admin/AdminResultMatchRow";
 import RoundNavScrollBar from "@/components/RoundNavScrollBar";
+import RoundNameFormFields from "@/components/admin/RoundNameFormFields";
+import {
+    buildRoundFullName,
+    getDefaultRoundNameParts,
+    parseRoundFullName,
+    type RoundNameParts,
+} from "@/lib/roundNameFormat";
 import { Match, Round, Team, User, Player } from "@/types";
 import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc, writeBatch, getDoc, deleteField } from "firebase/firestore";
 
@@ -40,7 +47,7 @@ export default function AdminPage() {
     const [editingRound, setEditingRound] = useState<number | null>(null);
     const [roundEditData, setRoundEditData] = useState({
         startTime: '',
-        name: ''
+        nameParts: getDefaultRoundNameParts(1),
     });
     const [editingResults, setEditingResults] = useState<number | null>(null);
 
@@ -59,7 +66,9 @@ export default function AdminPage() {
     // State חדש לניהול חלון הוספת משחקים
     const [showAddMatchesModal, setShowAddMatchesModal] = useState(false);
     const [newRoundNumber, setNewRoundNumber] = useState<number>(0);
-    const [newRoundName, setNewRoundName] = useState('');
+    const [newRoundNameParts, setNewRoundNameParts] = useState<RoundNameParts>(
+        getDefaultRoundNameParts(1)
+    );
     const [newRoundStartTime, setNewRoundStartTime] = useState('');
     const [newMatches, setNewMatches] = useState<Omit<Match, 'uid' | 'round'>[]>([]);
     const [editingMatches, setEditingMatches] = useState<number | null>(null);
@@ -161,7 +170,7 @@ export default function AdminPage() {
         }
         if (editingRound !== null && editingRound !== roundNumber) {
             setEditingRound(null);
-            setRoundEditData({ startTime: '', name: '' });
+            setRoundEditData({ startTime: '', nameParts: getDefaultRoundNameParts(1) });
         }
         if (extensionRoundNumber !== null && extensionRoundNumber !== roundNumber) {
             setExtensionRoundNumber(null);
@@ -356,10 +365,13 @@ export default function AdminPage() {
         }
     };
 
+    const getNextRoundId = () =>
+        rounds.length > 0 ? Math.max(...rounds.map((round) => round.number)) + 1 : 1;
+
     const handleAddRound = async () => {
-        const roundNumber = rounds.length + 1;
-        setNewRoundNumber(roundNumber);
-        setNewRoundName(`מחזור ${roundNumber}`);
+        const nextRoundId = getNextRoundId();
+        setNewRoundNumber(nextRoundId);
+        setNewRoundNameParts(getDefaultRoundNameParts(nextRoundId));
         setNewRoundStartTime(new Date().toISOString().slice(0, 16));
         setNewMatches([]);
         setShowAddMatchesModal(true);
@@ -376,10 +388,11 @@ export default function AdminPage() {
         }
 
         try {
-            // יצירת המחזור
+            const generatedName = buildRoundFullName(newRoundNameParts);
+            // יצירת המחזור — newRoundNumber הוא מזהה פנימי ייחודי, לא מספר בשם
             const newRound: Round = {
                 number: newRoundNumber,
-                name: newRoundName.trim() || `מחזור ${newRoundNumber}`,
+                name: generatedName,
                 matches: [],
                 startTime: newRoundStartTime,
                 isActive: false,
@@ -410,7 +423,7 @@ export default function AdminPage() {
             setShowAddMatchesModal(false);
             setNewMatches([]);
             setNewRoundNumber(0);
-            setNewRoundName('');
+            setNewRoundNameParts(getDefaultRoundNameParts(1));
             setNewRoundStartTime('');
             await loadData();
 
@@ -560,35 +573,32 @@ export default function AdminPage() {
 
     const handleEditRound = (round: Round) => {
         setEditingRound(round.number);
+        const parsedName =
+            parseRoundFullName(round.name || '') ??
+            getDefaultRoundNameParts(round.number);
         setRoundEditData({
             startTime: round.startTime || '',
-            name: round.name || `מחזור ${round.number}`
+            nameParts: parsedName,
         });
     };
 
     const handleSaveRoundEdit = async () => {
         if (!editingRound) return;
 
+        const generatedName = buildRoundFullName({
+            ...roundEditData.nameParts,
+            number: Math.max(1, roundEditData.nameParts.number),
+        });
+
         try {
             const roundRef = doc(db, 'season', currentSeason, 'rounds', editingRound.toString());
             await updateDoc(roundRef, {
                 startTime: roundEditData.startTime,
-                name: roundEditData.name
+                name: generatedName,
             });
 
-            // עדכון ה-state
-            setRounds(prev => prev.map(round => 
-                round.number === editingRound 
-                    ? { 
-                        ...round, 
-                        startTime: roundEditData.startTime,
-                        name: roundEditData.name
-                    }
-                    : round
-            ));
-
             setEditingRound(null);
-            setRoundEditData({ startTime: '', name: '' });
+            setRoundEditData({ startTime: '', nameParts: getDefaultRoundNameParts(1) });
             
             // רענון הנתונים כדי לוודא שהשינויים נשמרו
             await loadData();
@@ -602,7 +612,7 @@ export default function AdminPage() {
 
     const handleCancelEdit = () => {
         setEditingRound(null);
-        setRoundEditData({ startTime: '', name: '' });
+        setRoundEditData({ startTime: '', nameParts: getDefaultRoundNameParts(1) });
     };
 
     const handleEditResults = (roundNumber: number) => {
@@ -1331,18 +1341,16 @@ export default function AdminPage() {
                                         <CardContent className="space-y-3">
                                             {editingRound === round.number ? (
                                                 <div className="space-y-3">
-                                                    <div>
-                                                        <label className="block text-sm font-medium text-foreground mb-1">
-                                                            שם המחזור
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            value={roundEditData.name}
-                                                            onChange={(e) => setRoundEditData(prev => ({ ...prev, name: e.target.value }))}
-                                                            className="app-select text-sm"
-                                                            placeholder="למשל: מחזור 1 - עונה סדירהפתיחה, מחזור 1 - פלייאוף עליון וכו'"
-                                                        />
-                                                    </div>
+                                                    <RoundNameFormFields
+                                                        parts={roundEditData.nameParts}
+                                                        internalRoundId={editingRound}
+                                                        onChange={(nameParts) =>
+                                                            setRoundEditData((prev) => ({
+                                                                ...prev,
+                                                                nameParts,
+                                                            }))
+                                                        }
+                                                    />
                                                     <div>
                                                         <label className="block text-sm font-medium text-foreground mb-1">
                                                             תאריך ושעת סגירת הימורים למחזור
@@ -2097,7 +2105,7 @@ export default function AdminPage() {
                         <div className="p-6 border-b">
                             <div className="flex items-center justify-between">
                                 <h2 className="text-xl font-semibold">
-                                    הוסף משחקים ל{newRoundName.trim() || `מחזור ${newRoundNumber}`}
+                                    הוסף משחקים ל{buildRoundFullName(newRoundNameParts)}
                                 </h2>
                                 <Button
                                     variant="ghost"
@@ -2106,7 +2114,7 @@ export default function AdminPage() {
                                         setShowAddMatchesModal(false);
                                         setNewMatches([]);
                                         setNewRoundNumber(0);
-                                        setNewRoundName('');
+                                        setNewRoundNameParts(getDefaultRoundNameParts(1));
                                         setNewRoundStartTime('');
                                     }}
                                 >
@@ -2117,21 +2125,17 @@ export default function AdminPage() {
                         
                         <div className="p-6 space-y-4">
                             <div className="text-sm text-muted-foreground">
-                                <p>הגדר שם, שעת סגירת הימורים והוסף משחקים (לפחות אחד).</p>
+                                <p>
+                                    בחר שלב עונה וסוג מחזור — השם ייווצר אוטומטית.
+                                    מזהה פנימי למחזור: {newRoundNumber} (ייחודי, לא קשור למספר בשם).
+                                </p>
+                                <p className="mt-1">הגדר גם שעת סגירת הימורים והוסף משחקים (לפחות אחד).</p>
                             </div>
 
-                            <div>
-                                <label className="mb-1 block text-sm font-medium text-foreground">
-                                    שם המחזור
-                                </label>
-                                <input
-                                    type="text"
-                                    value={newRoundName}
-                                    onChange={(e) => setNewRoundName(e.target.value)}
-                                    className="app-select"
-                                    placeholder="למשל: מחזור 1 - עונה סדירהפתיחה, מחזור 1 - פלייאוף עליון וכו'"
-                                />
-                            </div>
+                            <RoundNameFormFields
+                                parts={newRoundNameParts}
+                                onChange={setNewRoundNameParts}
+                            />
 
                             <div>
                                 <label className="mb-1 block text-sm font-medium text-foreground">
@@ -2231,7 +2235,8 @@ export default function AdminPage() {
                                     setShowAddMatchesModal(false);
                                     setNewMatches([]);
                                     setNewRoundNumber(0);
-                                    setNewRoundName('');
+                                    setNewRoundNameParts(getDefaultRoundNameParts(1));
+                                    setNewRoundStartTime('');
                                 }}
                                 className="flex-1"
                             >

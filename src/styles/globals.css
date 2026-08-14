@@ -957,7 +957,7 @@
   }
 
   .round-nav-scroll-bar {
-    @apply sticky z-30 -mx-3 mb-1 px-3 pb-2 pt-2 sm:-mx-4 sm:px-4;
+    @apply relative sticky z-30 -mx-3 mb-1 overflow-visible px-3 pb-2 pt-2 sm:-mx-4 sm:px-4;
     top: 0;
     background: hsl(var(--background) / 0.9);
     backdrop-filter: blur(20px) saturate(180%);
@@ -980,7 +980,7 @@
   }
 
   .round-nav-scroll-wrap {
-    @apply relative;
+    @apply relative overflow-visible;
   }
 
   .round-nav-scroll-track {
@@ -996,7 +996,11 @@
   }
 
   .round-nav-pill {
-    @apply relative flex shrink-0 snap-center items-center gap-1.5 rounded-[0.875rem] border border-transparent px-3 py-2 text-[11px] font-semibold leading-tight text-muted-foreground transition-all duration-200 ease-out active:scale-[0.98] sm:px-3.5 sm:py-2.5 sm:text-[12px];
+    @apply relative flex shrink-0 snap-center items-center gap-1.5 rounded-[0.875rem] border border-transparent px-2.5 py-1.5 text-[11px] font-semibold leading-tight text-muted-foreground transition-all duration-200 ease-out active:scale-[0.98] sm:px-3 sm:py-2 sm:text-[12px];
+  }
+
+  .round-nav-pill--grouped {
+    @apply px-2.5 sm:px-3;
   }
 
   .round-nav-pill:hover:not(.round-nav-pill--active) {
@@ -1020,10 +1024,6 @@
     box-shadow: 0 0 0 2px hsl(var(--primary) / 0.45);
   }
 
-  .round-nav-pill--grouped {
-    @apply px-3 sm:px-3.5;
-  }
-
   .round-nav-pill-group {
     @apply inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5;
   }
@@ -1042,6 +1042,23 @@
 
   .round-nav-pill-compact {
     @apply whitespace-nowrap text-[11px] font-bold tracking-tight sm:text-[12px];
+  }
+
+  .round-nav-pill-popover {
+    @apply pointer-events-none absolute z-40 max-w-[min(16rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-border/45 bg-popover/55 px-2.5 py-1 text-center text-[10px] font-medium leading-snug text-foreground/85 shadow-sm backdrop-blur-sm;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .round-nav-pill-popover--edge-start {
+    @apply max-w-none whitespace-nowrap text-foreground/80;
+    overflow-wrap: normal;
+    word-break: normal;
+    transform: translateX(-100%);
+  }
+
+  .dark .round-nav-pill-popover {
+    @apply border-border/35 bg-popover/45 shadow-md;
   }
 
   .round-bets-pair-tab .round-nav-pill-compact {

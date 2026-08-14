@@ -1071,4 +1071,3 @@ export const restoreCancelledMatch = async (
   }
 };
 
-
